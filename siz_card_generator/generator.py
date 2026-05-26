@@ -2,7 +2,7 @@ from pathlib import Path
 from re import sub
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment
 
 
 NORM_COLUMNS = [
@@ -31,7 +31,7 @@ EMPLOYEE_COLUMNS = [
 
 FRONT_SHEET_NAME = "Лицевая сторона"
 BACK_SHEET_NAME = "Оборотная сторона"
-NORM_TABLE_HEADER_ROW = 22
+NORM_TABLE_HEADER_ROW = 29
 NORM_TABLE_START_ROW = NORM_TABLE_HEADER_ROW + 1
 ISSUE_TABLE_HEADER_ROW = 3
 ISSUE_TABLE_NUMBER_ROW = 5
@@ -103,29 +103,16 @@ def load_norms(norms_path):
 
 def style_generated_card(front_sheet, back_sheet, norms_count):
     """Apply basic formatting to the generated card."""
-    thin = Side(style="thin", color="999999")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
     last_norm_row = max(NORM_TABLE_HEADER_ROW, NORM_TABLE_START_ROW + norms_count - 1)
-    last_issue_row = max(20, ISSUE_TABLE_START_ROW + norms_count - 1)
+    last_issue_row = max(ISSUE_TABLE_START_ROW, ISSUE_TABLE_START_ROW + norms_count - 1)
 
-    for row in front_sheet.iter_rows(min_row=NORM_TABLE_HEADER_ROW, max_row=last_norm_row, min_col=1, max_col=5):
+    for row in front_sheet.iter_rows(min_row=NORM_TABLE_START_ROW, max_row=last_norm_row, min_col=1, max_col=108):
         for cell in row:
-            cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_HEADER_ROW, max_row=last_issue_row, min_col=1, max_col=10):
+    for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_START_ROW, max_row=last_issue_row, min_col=1, max_col=108):
         for cell in row:
-            cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="center")
-
-    for cell in front_sheet[NORM_TABLE_HEADER_ROW]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    for row_number in range(ISSUE_TABLE_HEADER_ROW, ISSUE_TABLE_START_ROW):
-        for cell in back_sheet[row_number]:
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
 def create_card(employee, norms, template_path, output_dir):
@@ -138,33 +125,32 @@ def create_card(employee, norms, template_path, output_dir):
     personnel_number = employee["Табельный номер"]
     surname, name, patronymic = split_full_name(full_name)
 
-    front_sheet["A8"] = f"ЛИЧНАЯ КАРТОЧКА № {personnel_number}"
-    front_sheet["B11"] = surname
-    front_sheet["B12"] = name
-    front_sheet["F12"] = patronymic
-    front_sheet["B13"] = personnel_number
-    front_sheet["B14"] = employee["Подразделение"]
-    front_sheet["B15"] = employee["Должность"]
-    front_sheet["B16"] = employee["Дата приема"]
-    front_sheet["I11"] = employee["Пол"]
-    front_sheet["I12"] = employee["Рост"]
-    front_sheet["I14"] = employee["Размер одежды"]
-    front_sheet["I15"] = employee["Размер обуви"]
-    front_sheet["I16"] = employee["Размер головного убора"]
-    front_sheet["I18"] = employee["Размер перчаток"]
+    front_sheet["AF16"] = f"ЛИЧНАЯ КАРТОЧКА № {personnel_number}"
+    front_sheet["L19"] = surname
+    front_sheet["G20"] = name
+    front_sheet["AV20"] = patronymic
+    front_sheet["T21"] = personnel_number
+    front_sheet["AE22"] = employee["Подразделение"]
+    front_sheet["AA23"] = employee["Должность"]
+    front_sheet["AE24"] = employee["Дата приема"]
+    front_sheet["BW19"] = employee["Пол"]
+    front_sheet["BX20"] = employee["Рост"]
+    front_sheet["CA22"] = employee["Размер одежды"]
+    front_sheet["BY23"] = employee["Размер обуви"]
+    front_sheet["CJ24"] = employee["Размер головного убора"]
+    front_sheet["CB27"] = employee["Размер перчаток"]
 
     for index, norm in enumerate(norms, start=1):
         norm_row = NORM_TABLE_START_ROW + index - 1
         issue_row = ISSUE_TABLE_START_ROW + index - 1
 
-        front_sheet.cell(row=norm_row, column=1, value=norm["Наименование СИЗ"])
-        front_sheet.cell(row=norm_row, column=2, value=norm["Основание"])
-        front_sheet.cell(row=norm_row, column=3, value=norm["Срок носки"])
-        front_sheet.cell(row=norm_row, column=4, value=norm["Норма выдачи"])
-        front_sheet.cell(row=norm_row, column=5, value=norm["Примечание"])
+        front_sheet[f"A{norm_row}"] = norm["Наименование СИЗ"]
+        front_sheet[f"AW{norm_row}"] = norm["Основание"]
+        front_sheet[f"BO{norm_row}"] = norm["Срок носки"]
+        front_sheet[f"CJ{norm_row}"] = norm["Норма выдачи"]
 
-        back_sheet.cell(row=issue_row, column=1, value=norm["Наименование СИЗ"])
-        for column in range(2, 11):
+        back_sheet[f"A{issue_row}"] = norm["Наименование СИЗ"]
+        for column in range(18, 109):
             back_sheet.cell(row=issue_row, column=column, value=None)
 
     style_generated_card(front_sheet, back_sheet, len(norms))
