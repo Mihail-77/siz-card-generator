@@ -5,6 +5,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 
 BASE_DIR = Path(__file__).parent
+SAMPLE_DATA_DIR = BASE_DIR / "sample_data"
 REFERENCE_TEMPLATE_PATH = BASE_DIR / "reference" / "Карточка СИЗ.xlsx"
 
 
@@ -199,10 +200,11 @@ def setup_fonts(front_sheet, back_sheet):
 
 
 def main():
-    create_norms_file(BASE_DIR / "norms.xlsx")
-    create_employees_file(BASE_DIR / "employees.xlsx")
-    create_template(BASE_DIR / "templates" / "card_template.xlsx")
-    print("Созданы файлы norms.xlsx, employees.xlsx и templates/card_template.xlsx")
+    SAMPLE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    create_norms_file(SAMPLE_DATA_DIR / "norms_sample.xlsx")
+    create_employees_file(SAMPLE_DATA_DIR / "employees_sample.xlsx")
+    print("Созданы учебные файлы sample_data/norms_sample.xlsx и sample_data/employees_sample.xlsx")
+    print("Файлы в папке data не перезаписывались.")
 
 
 if __name__ == "__main__":

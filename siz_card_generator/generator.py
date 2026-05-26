@@ -101,6 +101,49 @@ def load_norms(norms_path):
     return norms_by_key
 
 
+def get_departments(norms_path):
+    """Return unique departments from norms.xlsx."""
+    rows = read_table(norms_path, NORM_COLUMNS)
+    departments = {
+        str(row["Подразделение"]).strip()
+        for row in rows
+        if row["Подразделение"] is not None and str(row["Подразделение"]).strip()
+    }
+    return sorted(departments)
+
+
+def get_positions_by_department(norms_path, department):
+    """Return positions available for the selected department."""
+    rows = read_table(norms_path, NORM_COLUMNS)
+    selected_department = normalize(department)
+    positions = {
+        str(row["Должность"]).strip()
+        for row in rows
+        if normalize(row["Подразделение"]) == selected_department
+        and row["Должность"] is not None
+        and str(row["Должность"]).strip()
+    }
+    return sorted(positions)
+
+
+def find_norms_for_employee(norms_by_key, employee):
+    """Find PPE norms by department and position."""
+    department = normalize(employee["Подразделение"])
+    position = normalize(employee["Должность"])
+    return norms_by_key.get((department, position))
+
+
+def build_warning(employee, reason):
+    """Create one warning row for warnings.xlsx."""
+    return {
+        "Табельный номер": employee["Табельный номер"],
+        "ФИО": employee["ФИО"],
+        "Подразделение": employee["Подразделение"],
+        "Должность": employee["Должность"],
+        "Причина": reason,
+    }
+
+
 def style_generated_card(front_sheet, back_sheet, norms_count):
     """Apply basic formatting to the generated card."""
     last_norm_row = max(NORM_TABLE_HEADER_ROW, NORM_TABLE_START_ROW + norms_count - 1)
@@ -160,6 +203,32 @@ def create_card(employee, norms, template_path, output_dir):
     workbook.save(output_dir / file_name)
 
 
+def create_single_card(employee, norms_path, template_path, output_dir):
+    """
+    Create one card from employee data passed from code.
+
+    This function is intended for a future GUI where employee data will be
+    entered on the screen instead of being read from employees.xlsx.
+    """
+    missing_columns = [column for column in EMPLOYEE_COLUMNS if column not in employee]
+    if missing_columns:
+        joined = ", ".join(missing_columns)
+        raise ValueError(f"Не хватает данных работника: {joined}")
+
+    norms_by_key = load_norms(norms_path)
+    norms = find_norms_for_employee(norms_by_key, employee)
+    if not norms:
+        reason = "Не найдены нормы для подразделения и должности"
+        save_warnings([build_warning(employee, reason)], output_dir)
+        return None
+
+    create_card(employee, norms, template_path, output_dir)
+    full_name = employee["ФИО"]
+    personnel_number = employee["Табельный номер"]
+    file_name = f"{safe_filename(personnel_number)}_{safe_filename(full_name)}.xlsx"
+    return output_dir / file_name
+
+
 def save_warnings(warnings, output_dir):
     """Save warnings to output/warnings.xlsx."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -201,20 +270,11 @@ def run(norms_path, employees_path, template_path, output_dir):
     created_count = 0
 
     for employee in employees:
-        department = normalize(employee["Подразделение"])
-        position = normalize(employee["Должность"])
-        norms = norms_by_key.get((department, position))
+        norms = find_norms_for_employee(norms_by_key, employee)
 
         if not norms:
-            warnings.append(
-                {
-                    "Табельный номер": employee["Табельный номер"],
-                    "ФИО": employee["ФИО"],
-                    "Подразделение": employee["Подразделение"],
-                    "Должность": employee["Должность"],
-                    "Причина": "Не найдены нормы для подразделения и должности",
-                }
-            )
+            reason = "Не найдены нормы для подразделения и должности"
+            warnings.append(build_warning(employee, reason))
             continue
 
         create_card(employee, norms, template_path, output_dir)
