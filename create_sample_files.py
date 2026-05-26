@@ -137,25 +137,30 @@ def create_employees_file(path):
 def create_template(path):
     workbook = Workbook()
     front_sheet = workbook.active
-    front_sheet.title = "стр.1"
+    front_sheet.title = "Лицевая сторона"
+    back_sheet = workbook.create_sheet("Оборотная сторона")
 
     thin = Side(style="thin", color="999999")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_fill = PatternFill("solid", fgColor="D9EAF7")
 
     front_widths = [30, 24, 14, 14, 18, 22, 14, 14, 20, 24, 18]
+    back_widths = [30, 24, 14, 14, 18, 22, 14, 14, 20, 24]
     for index, width in enumerate(front_widths, start=1):
         front_sheet.column_dimensions[chr(64 + index)].width = width
+    for index, width in enumerate(back_widths, start=1):
+        back_sheet.column_dimensions[chr(64 + index)].width = width
 
-    front_sheet.page_setup.orientation = "portrait"
-    front_sheet.page_setup.paperSize = 9
-    front_sheet.sheet_properties.pageSetUpPr.fitToPage = True
-    front_sheet.page_setup.fitToWidth = 1
-    front_sheet.page_setup.fitToHeight = 0
-    front_sheet.page_margins.left = 0.4
-    front_sheet.page_margins.right = 0.4
-    front_sheet.page_margins.top = 0.6
-    front_sheet.page_margins.bottom = 0.4
+    for sheet in [front_sheet, back_sheet]:
+        sheet.page_setup.orientation = "portrait"
+        sheet.page_setup.paperSize = 9
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.page_margins.left = 0.4
+        sheet.page_margins.right = 0.4
+        sheet.page_margins.top = 0.6
+        sheet.page_margins.bottom = 0.4
 
     front_sheet.merge_cells("H1:K1")
     front_sheet["H1"] = "Приложение № 2"
@@ -254,19 +259,19 @@ def create_template(path):
     front_sheet["F36"].border = Border(bottom=thin)
     front_sheet["G36"].border = Border(bottom=thin)
 
-    front_sheet.merge_cells("A40:J40")
-    front_sheet["A40"] = "Оборотная сторона личной карточки"
-    front_sheet["A40"].font = Font(bold=True)
-    front_sheet["A40"].alignment = Alignment(horizontal="center")
+    back_sheet.merge_cells("A1:J1")
+    back_sheet["A1"] = "Оборотная сторона личной карточки"
+    back_sheet["A1"].font = Font(bold=True)
+    back_sheet["A1"].alignment = Alignment(horizontal="center")
 
-    front_sheet.merge_cells("A42:A43")
-    front_sheet["A42"] = "Наименование СИЗ"
-    front_sheet.merge_cells("B42:B43")
-    front_sheet["B42"] = "Модель, марка, артикул, класс защиты СИЗ, дерматологических СИЗ"
-    front_sheet.merge_cells("C42:F42")
-    front_sheet["C42"] = "Выдано"
-    front_sheet.merge_cells("G42:J42")
-    front_sheet["G42"] = "Возвращено"
+    back_sheet.merge_cells("A3:A4")
+    back_sheet["A3"] = "Наименование СИЗ"
+    back_sheet.merge_cells("B3:B4")
+    back_sheet["B3"] = "Модель, марка, артикул, класс защиты СИЗ, дерматологических СИЗ"
+    back_sheet.merge_cells("C3:F3")
+    back_sheet["C3"] = "Выдано"
+    back_sheet.merge_cells("G3:J3")
+    back_sheet["G3"] = "Возвращено"
 
     issue_headers = [
         "дата",
@@ -279,21 +284,21 @@ def create_template(path):
         "Акт списания, дата и номер",
     ]
     for column, header in enumerate(issue_headers, start=3):
-        front_sheet.cell(row=43, column=column, value=header)
+        back_sheet.cell(row=4, column=column, value=header)
     for column in range(1, 11):
-        front_sheet.cell(row=44, column=column, value=column)
+        back_sheet.cell(row=5, column=column, value=column)
 
-    for row in front_sheet.iter_rows(min_row=42, max_row=58, min_col=1, max_col=10):
+    for row in back_sheet.iter_rows(min_row=3, max_row=20, min_col=1, max_col=10):
         for cell in row:
             cell.border = border
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for row_number in range(42, 45):
-        for cell in front_sheet[row_number]:
+    for row_number in range(3, 6):
+        for cell in back_sheet[row_number]:
             cell.font = Font(bold=True)
             cell.fill = header_fill
 
-    front_sheet["A61"] = "* информация указывается только для дерматологических СИЗ"
-    front_sheet["A62"] = (
+    back_sheet["A23"] = "* информация указывается только для дерматологических СИЗ"
+    back_sheet["A24"] = (
         "** информация указывается для всех СИЗ, кроме дерматологических СИЗ "
         "и СИЗ однократного применения"
     )

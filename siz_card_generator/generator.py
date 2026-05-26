@@ -29,12 +29,12 @@ EMPLOYEE_COLUMNS = [
     "Размер перчаток",
 ]
 
-FRONT_SHEET_NAME = "стр.1"
+FRONT_SHEET_NAME = "Лицевая сторона"
+BACK_SHEET_NAME = "Оборотная сторона"
 NORM_TABLE_HEADER_ROW = 22
 NORM_TABLE_START_ROW = NORM_TABLE_HEADER_ROW + 1
-ISSUE_TABLE_TITLE_ROW = 40
-ISSUE_TABLE_HEADER_ROW = 42
-ISSUE_TABLE_NUMBER_ROW = 44
+ISSUE_TABLE_HEADER_ROW = 3
+ISSUE_TABLE_NUMBER_ROW = 5
 ISSUE_TABLE_START_ROW = ISSUE_TABLE_NUMBER_ROW + 1
 
 
@@ -101,19 +101,19 @@ def load_norms(norms_path):
     return norms_by_key
 
 
-def style_generated_card(front_sheet, norms_count):
+def style_generated_card(front_sheet, back_sheet, norms_count):
     """Apply basic formatting to the generated card."""
     thin = Side(style="thin", color="999999")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     last_norm_row = max(NORM_TABLE_HEADER_ROW, NORM_TABLE_START_ROW + norms_count - 1)
-    last_issue_row = max(58, ISSUE_TABLE_START_ROW + norms_count - 1)
+    last_issue_row = max(20, ISSUE_TABLE_START_ROW + norms_count - 1)
 
     for row in front_sheet.iter_rows(min_row=NORM_TABLE_HEADER_ROW, max_row=last_norm_row, min_col=1, max_col=5):
         for cell in row:
             cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for row in front_sheet.iter_rows(min_row=ISSUE_TABLE_HEADER_ROW, max_row=last_issue_row, min_col=1, max_col=10):
+    for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_HEADER_ROW, max_row=last_issue_row, min_col=1, max_col=10):
         for cell in row:
             cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="center")
@@ -123,7 +123,7 @@ def style_generated_card(front_sheet, norms_count):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     for row_number in range(ISSUE_TABLE_HEADER_ROW, ISSUE_TABLE_START_ROW):
-        for cell in front_sheet[row_number]:
+        for cell in back_sheet[row_number]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
@@ -132,6 +132,7 @@ def create_card(employee, norms, template_path, output_dir):
     """Create one personal PPE card from the template."""
     workbook = load_workbook(template_path)
     front_sheet = workbook[FRONT_SHEET_NAME] if FRONT_SHEET_NAME in workbook.sheetnames else workbook.active
+    back_sheet = workbook[BACK_SHEET_NAME] if BACK_SHEET_NAME in workbook.sheetnames else workbook.create_sheet(BACK_SHEET_NAME)
 
     full_name = employee["ФИО"]
     personnel_number = employee["Табельный номер"]
@@ -162,11 +163,11 @@ def create_card(employee, norms, template_path, output_dir):
         front_sheet.cell(row=norm_row, column=4, value=norm["Норма выдачи"])
         front_sheet.cell(row=norm_row, column=5, value=norm["Примечание"])
 
-        front_sheet.cell(row=issue_row, column=1, value=norm["Наименование СИЗ"])
+        back_sheet.cell(row=issue_row, column=1, value=norm["Наименование СИЗ"])
         for column in range(2, 11):
-            front_sheet.cell(row=issue_row, column=column, value=None)
+            back_sheet.cell(row=issue_row, column=column, value=None)
 
-    style_generated_card(front_sheet, len(norms))
+    style_generated_card(front_sheet, back_sheet, len(norms))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"{safe_filename(personnel_number)}_{safe_filename(full_name)}.xlsx"
