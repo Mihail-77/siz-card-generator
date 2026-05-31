@@ -1,8 +1,12 @@
+from copy import copy
+from math import ceil
 from pathlib import Path
 from re import sub
 
+from openpyxl.cell.cell import MergedCell
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font, Border, Side
+from openpyxl.utils import get_column_letter
 
 
 NORM_COLUMNS = [
@@ -36,6 +40,33 @@ NORM_TABLE_START_ROW = NORM_TABLE_HEADER_ROW + 1
 ISSUE_TABLE_HEADER_ROW = 3
 ISSUE_TABLE_NUMBER_ROW = 5
 ISSUE_TABLE_START_ROW = ISSUE_TABLE_NUMBER_ROW + 1
+FRONT_TEMPLATE_ROW = 30
+FRONT_TEMPLATE_LAST_ROW = 33
+BACK_TEMPLATE_ROW = 6
+BACK_TEMPLATE_LAST_ROW = 7
+FRONT_TABLE_MERGES = [(1, 48), (49, 66), (67, 87), (88, 108)]
+BACK_TABLE_MERGES = [
+    (1, 17),
+    (18, 35),
+    (36, 44),
+    (45, 52),
+    (53, 60),
+    (61, 70),
+    (71, 79),
+    (80, 87),
+    (88, 97),
+    (98, 108),
+]
+BACK_NOTE_TEXTS = [
+    "* - информация указывается только для дерматологических СИЗ",
+    "** - информация указывается для всех СИЗ, кроме дерматологических СИЗ и СИЗ однократного применения",
+]
+THIN_BORDER = Border(
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
 
 
 def normalize(value):
@@ -60,6 +91,217 @@ def split_full_name(full_name):
     name = parts[1] if len(parts) > 1 else ""
     patronymic = " ".join(parts[2:]) if len(parts) > 2 else ""
     return surname, name, patronymic
+
+
+def safe_write_cell(sheet, cell, value):
+    """
+    Write a value to a cell, respecting merged ranges.
+
+    If the target cell is inside a merged range, openpyxl allows writing only
+    to the top-left cell of that range. This helper redirects the write there.
+    """
+    if isinstance(cell, str):
+        target = sheet[cell]
+        row = target.row
+        column = target.column
+    else:
+        row, column = cell
+
+    coordinate = f"{get_column_letter(column)}{row}"
+    for merged_range in sheet.merged_cells.ranges:
+        if coordinate in merged_range:
+            sheet.cell(row=merged_range.min_row, column=merged_range.min_col).value = value
+            return
+
+    sheet.cell(row=row, column=column).value = value
+
+
+def copy_row_format(sheet, source_row, target_row, max_column=108):
+    """Copy row height and cell formatting from a template row."""
+    sheet.row_dimensions[target_row].height = sheet.row_dimensions[source_row].height
+    for column in range(1, max_column + 1):
+        source_cell = sheet.cell(row=source_row, column=column)
+        target_cell = sheet.cell(row=target_row, column=column)
+        if source_cell.has_style:
+            target_cell._style = copy(source_cell._style)
+        if source_cell.alignment:
+            target_cell.alignment = copy(source_cell.alignment)
+        if source_cell.font:
+            target_cell.font = copy(source_cell.font)
+        if source_cell.fill:
+            target_cell.fill = copy(source_cell.fill)
+        if source_cell.border:
+            target_cell.border = copy(source_cell.border)
+        if source_cell.protection:
+            target_cell.protection = copy(source_cell.protection)
+        if source_cell.number_format:
+            target_cell.number_format = source_cell.number_format
+
+
+def unmerge_ranges_on_row(sheet, row_number):
+    """Remove merged ranges that are fully placed on one target row."""
+    ranges_to_unmerge = [
+        merged_range.coord
+        for merged_range in sheet.merged_cells.ranges
+        if merged_range.min_row == row_number and merged_range.max_row == row_number
+    ]
+    for merged_range in ranges_to_unmerge:
+        try:
+            sheet.unmerge_cells(merged_range)
+        except KeyError:
+            for existing_range in list(sheet.merged_cells.ranges):
+                if existing_range.coord == merged_range:
+                    sheet.merged_cells.ranges.remove(existing_range)
+                    break
+
+
+def apply_row_merges(sheet, row_number, column_ranges):
+    """Apply horizontal merged ranges for a generated table row."""
+    for start_column, end_column in column_ranges:
+        sheet.merge_cells(
+            start_row=row_number,
+            start_column=start_column,
+            end_row=row_number,
+            end_column=end_column,
+        )
+
+
+def normalize_workbook_font(workbook):
+    """Use Times New Roman 11 as the default font in generated workbooks."""
+    for named_style in workbook._named_styles:
+        if named_style.name == "Normal":
+            named_style.font = Font(name="Times New Roman", size=11)
+            break
+
+
+def set_table_row_height(sheet, row_number, text):
+    """Increase row height for long PPE names while keeping the normal font size."""
+    text_length = len(str(text or ""))
+    if text_length > 110:
+        sheet.row_dimensions[row_number].height = 60
+    elif text_length > 70:
+        sheet.row_dimensions[row_number].height = 45
+    elif text_length > 35:
+        sheet.row_dimensions[row_number].height = 32
+
+
+def set_back_table_row_height(sheet, row_number, text):
+    """Set row height for the issue/return table based on the PPE name length."""
+    text_value = str(text or "")
+    text_length = len(text_value)
+    visual_lines = 0
+    for text_part in text_value.splitlines() or [""]:
+        visual_lines += max(1, ceil(len(text_part) / 14))
+
+    row_height = max(36, visual_lines * 17)
+    if 25 <= text_length <= 40:
+        row_height = max(row_height, 54)
+
+    sheet.row_dimensions[row_number].height = min(row_height, 110)
+    sheet.cell(row=row_number, column=1).alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=True,
+    )
+
+
+def style_back_table_row(sheet, row_number):
+    """Apply table style to every cell in one issue/return row."""
+    for column in range(1, 109):
+        cell = sheet.cell(row=row_number, column=column)
+        cell.font = Font(name="Times New Roman", size=11)
+        cell.border = copy(THIN_BORDER)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for column in range(1, 18):
+        sheet.cell(row=row_number, column=column).alignment = Alignment(
+            horizontal="left",
+            vertical="center",
+            wrap_text=True,
+        )
+
+
+def prepare_front_table_rows(sheet, row_count):
+    """Prepare formatted rows for the prescribed PPE table."""
+    if row_count <= 0:
+        return
+
+    existing_rows = FRONT_TEMPLATE_LAST_ROW - FRONT_TEMPLATE_ROW + 1
+    extra_rows = max(0, row_count - existing_rows)
+    if extra_rows:
+        sheet.insert_rows(FRONT_TEMPLATE_LAST_ROW + 1, extra_rows)
+
+    for row_number in range(FRONT_TEMPLATE_ROW, FRONT_TEMPLATE_ROW + row_count):
+        unmerge_ranges_on_row(sheet, row_number)
+        remove_stale_merged_cells(sheet, row_number)
+        copy_row_format(sheet, FRONT_TEMPLATE_ROW, row_number)
+        apply_row_merges(sheet, row_number, FRONT_TABLE_MERGES)
+
+
+def prepare_back_table_rows(sheet, row_count):
+    """Prepare formatted rows for the PPE issue and return table."""
+    if row_count <= 0:
+        return
+
+    existing_rows = BACK_TEMPLATE_LAST_ROW - BACK_TEMPLATE_ROW + 1
+    extra_rows = max(0, row_count - existing_rows)
+    if extra_rows:
+        sheet.insert_rows(BACK_TEMPLATE_LAST_ROW + 1, extra_rows)
+
+    for row_number in range(BACK_TEMPLATE_ROW, BACK_TEMPLATE_ROW + row_count):
+        unmerge_ranges_on_row(sheet, row_number)
+        remove_stale_merged_cells(sheet, row_number)
+        copy_row_format(sheet, BACK_TEMPLATE_ROW, row_number)
+        style_back_table_row(sheet, row_number)
+        apply_row_merges(sheet, row_number, BACK_TABLE_MERGES)
+
+
+def clear_merged_ranges_intersecting_rows(sheet, start_row, end_row):
+    """Remove merged ranges that intersect the target rows."""
+    ranges_to_unmerge = [
+        merged_range.coord
+        for merged_range in sheet.merged_cells.ranges
+        if merged_range.min_row <= end_row and merged_range.max_row >= start_row
+    ]
+    for merged_range in ranges_to_unmerge:
+        sheet.unmerge_cells(merged_range)
+
+
+def remove_stale_merged_cells(sheet, row_number, max_column=108):
+    """Remove leftover MergedCell objects after row insertion/unmerge."""
+    for column in range(1, max_column + 1):
+        key = (row_number, column)
+        if isinstance(sheet._cells.get(key), MergedCell):
+            del sheet._cells[key]
+
+
+def prepare_back_notes(sheet, norms_count):
+    """Place note rows directly below the generated issue/return table."""
+    first_note_row = ISSUE_TABLE_START_ROW + norms_count
+    second_note_row = first_note_row + 1
+
+    clear_merged_ranges_intersecting_rows(sheet, first_note_row, second_note_row)
+
+    for row_number, note_text in zip([first_note_row, second_note_row], BACK_NOTE_TEXTS):
+        remove_stale_merged_cells(sheet, row_number)
+        for column in range(1, 109):
+            cell = sheet.cell(row=row_number, column=column)
+            cell.value = None
+            cell.border = copy(sheet["A1"].border)
+            cell.fill = copy(sheet["A1"].fill)
+
+        sheet.merge_cells(start_row=row_number, start_column=2, end_row=row_number, end_column=108)
+        note_cell = sheet.cell(row=row_number, column=2)
+        note_cell.value = note_text
+        note_cell.font = Font(name="Times New Roman", size=11)
+        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        sheet.row_dimensions[row_number].height = 18 if row_number == first_note_row else 34
+
+
+def update_print_areas(front_sheet, back_sheet):
+    """Keep print areas aligned with rows inserted into generated cards."""
+    front_sheet.print_area = f"A1:DD{front_sheet.max_row}"
+    back_sheet.print_area = f"A1:DD{back_sheet.max_row}"
 
 
 def read_table(path, required_columns):
@@ -155,12 +397,14 @@ def style_generated_card(front_sheet, back_sheet, norms_count):
 
     for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_START_ROW, max_row=last_issue_row, min_col=1, max_col=108):
         for cell in row:
-            cell.alignment = Alignment(wrap_text=True, vertical="center")
+            horizontal = "left" if cell.column <= 17 else "center"
+            cell.alignment = Alignment(horizontal=horizontal, vertical="center", wrap_text=True)
 
 
 def create_card(employee, norms, template_path, output_dir):
     """Create one personal PPE card from the template."""
     workbook = load_workbook(template_path)
+    normalize_workbook_font(workbook)
     front_sheet = workbook[FRONT_SHEET_NAME] if FRONT_SHEET_NAME in workbook.sheetnames else workbook.active
     back_sheet = workbook[BACK_SHEET_NAME] if BACK_SHEET_NAME in workbook.sheetnames else workbook.create_sheet(BACK_SHEET_NAME)
 
@@ -168,35 +412,42 @@ def create_card(employee, norms, template_path, output_dir):
     personnel_number = employee["Табельный номер"]
     surname, name, patronymic = split_full_name(full_name)
 
-    front_sheet["AF16"] = f"ЛИЧНАЯ КАРТОЧКА № {personnel_number}"
-    front_sheet["L19"] = surname
-    front_sheet["G20"] = name
-    front_sheet["AV20"] = patronymic
-    front_sheet["T21"] = personnel_number
-    front_sheet["AE22"] = employee["Подразделение"]
-    front_sheet["AA23"] = employee["Должность"]
-    front_sheet["AE24"] = employee["Дата приема"]
-    front_sheet["BW19"] = employee["Пол"]
-    front_sheet["BX20"] = employee["Рост"]
-    front_sheet["CA22"] = employee["Размер одежды"]
-    front_sheet["BY23"] = employee["Размер обуви"]
-    front_sheet["CJ24"] = employee["Размер головного убора"]
-    front_sheet["CB27"] = employee["Размер перчаток"]
+    safe_write_cell(front_sheet, "AF16", f"ЛИЧНАЯ КАРТОЧКА № {personnel_number}")
+    safe_write_cell(front_sheet, "L19", surname)
+    safe_write_cell(front_sheet, "G20", name)
+    safe_write_cell(front_sheet, "AV20", patronymic)
+    safe_write_cell(front_sheet, "T21", personnel_number)
+    safe_write_cell(front_sheet, "AE22", employee["Подразделение"])
+    safe_write_cell(front_sheet, "AA23", employee["Должность"])
+    safe_write_cell(front_sheet, "AE24", employee["Дата приема"])
+    safe_write_cell(front_sheet, "BW19", employee["Пол"])
+    safe_write_cell(front_sheet, "BX20", employee["Рост"])
+    safe_write_cell(front_sheet, "CA22", employee["Размер одежды"])
+    safe_write_cell(front_sheet, "BY23", employee["Размер обуви"])
+    safe_write_cell(front_sheet, "CJ24", employee["Размер головного убора"])
+    safe_write_cell(front_sheet, "CB27", employee["Размер перчаток"])
+
+    prepare_front_table_rows(front_sheet, len(norms))
+    prepare_back_table_rows(back_sheet, len(norms))
 
     for index, norm in enumerate(norms, start=1):
         norm_row = NORM_TABLE_START_ROW + index - 1
         issue_row = ISSUE_TABLE_START_ROW + index - 1
 
-        front_sheet[f"A{norm_row}"] = norm["Наименование СИЗ"]
-        front_sheet[f"AW{norm_row}"] = norm["Основание"]
-        front_sheet[f"BO{norm_row}"] = norm["Срок носки"]
-        front_sheet[f"CJ{norm_row}"] = norm["Норма выдачи"]
+        safe_write_cell(front_sheet, f"A{norm_row}", norm["Наименование СИЗ"])
+        safe_write_cell(front_sheet, f"AW{norm_row}", norm["Основание"])
+        safe_write_cell(front_sheet, f"BO{norm_row}", norm["Срок носки"])
+        safe_write_cell(front_sheet, f"CJ{norm_row}", norm["Норма выдачи"])
+        set_table_row_height(front_sheet, norm_row, norm["Наименование СИЗ"])
 
-        back_sheet[f"A{issue_row}"] = norm["Наименование СИЗ"]
+        safe_write_cell(back_sheet, f"A{issue_row}", norm["Наименование СИЗ"])
         for column in range(18, 109):
-            back_sheet.cell(row=issue_row, column=column, value=None)
+            safe_write_cell(back_sheet, (issue_row, column), None)
+        set_back_table_row_height(back_sheet, issue_row, norm["Наименование СИЗ"])
 
     style_generated_card(front_sheet, back_sheet, len(norms))
+    prepare_back_notes(back_sheet, len(norms))
+    update_print_areas(front_sheet, back_sheet)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"{safe_filename(personnel_number)}_{safe_filename(full_name)}.xlsx"
