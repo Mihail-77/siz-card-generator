@@ -139,7 +139,7 @@ def enable_wrap_text(sheet, row, column):
     return merged_range
 
 
-def set_employee_field_row_height(sheet, cell, text):
+def set_employee_field_row_height(sheet, cell, text, shrink_long_text=False):
     """Increase employee info row height for long values in merged fields."""
     target = sheet[cell]
     merged_range = enable_wrap_text(sheet, target.row, target.column)
@@ -148,9 +148,28 @@ def set_employee_field_row_height(sheet, cell, text):
         if merged_range
         else 1
     )
-    chars_per_line = max(24, min(42, int(column_count * 0.85)))
+    if shrink_long_text:
+        chars_per_line = max(24, min(34, int(column_count * 0.72)))
+    else:
+        chars_per_line = max(24, min(42, int(column_count * 0.85)))
 
     text_value = str(text or "")
+    target_cell = sheet.cell(
+        row=merged_range.min_row if merged_range else target.row,
+        column=merged_range.min_col if merged_range else target.column,
+    )
+    if shrink_long_text and len(text_value) > chars_per_line:
+        target_cell.font = Font(
+            name=target_cell.font.name or "Times New Roman",
+            size=10,
+            bold=target_cell.font.bold,
+            italic=target_cell.font.italic,
+            vertAlign=target_cell.font.vertAlign,
+            underline=target_cell.font.underline,
+            strike=target_cell.font.strike,
+            color=copy(target_cell.font.color),
+        )
+
     estimated_lines = 0
     for text_part in text_value.splitlines() or [""]:
         estimated_lines += max(1, ceil(len(text_part) / chars_per_line))
@@ -159,7 +178,8 @@ def set_employee_field_row_height(sheet, cell, text):
     if estimated_lines <= 1:
         return
 
-    sheet.row_dimensions[target.row].height = max(base_height, min(estimated_lines * 17, 75))
+    line_height = 15 if shrink_long_text and len(text_value) > chars_per_line else 17
+    sheet.row_dimensions[target.row].height = max(base_height, min(estimated_lines * line_height, 75))
 
 
 def copy_row_format(sheet, source_row, target_row, max_column=108):
@@ -487,7 +507,7 @@ def create_card(employee, norms, template_path, output_dir):
     safe_write_cell(front_sheet, "AE22", employee["Подразделение"])
     safe_write_cell(front_sheet, "AA23", employee["Должность"])
     set_employee_field_row_height(front_sheet, "AE22", employee["Подразделение"])
-    set_employee_field_row_height(front_sheet, "AA23", employee["Должность"])
+    set_employee_field_row_height(front_sheet, "AA23", employee["Должность"], shrink_long_text=True)
     safe_write_cell(front_sheet, "AE24", employee["Дата приема"])
     safe_write_cell(front_sheet, "BW19", employee["Пол"])
     safe_write_cell(front_sheet, "BX20", employee["Рост"])

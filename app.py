@@ -18,7 +18,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 
 
 FIELD_LABELS = [
-    "Табельный номер",
+    "Номер карточки",
     "ФИО",
     "Дата приема",
     "Пол",
@@ -27,6 +27,21 @@ FIELD_LABELS = [
     "Размер обуви",
     "Размер головного убора",
     "Размер перчаток",
+]
+
+FIELD_TO_EMPLOYEE_COLUMN = {
+    "Номер карточки": "Табельный номер",
+}
+
+REQUIRED_FIELDS = [
+    "Подразделение",
+    "Должность",
+    "Номер карточки",
+    "ФИО",
+    "Дата приема",
+    "Пол",
+    "Рост",
+    "Размер одежды",
 ]
 
 
@@ -68,8 +83,17 @@ class SizCardApp:
 
         for index, label in enumerate(FIELD_LABELS, start=2):
             ttk.Label(frame, text=label).grid(row=index, column=0, sticky="w", pady=4)
-            entry = ttk.Entry(frame, textvariable=self.field_vars[label], width=45)
-            entry.grid(row=index, column=1, sticky="ew", pady=4)
+            if label == "Пол":
+                field = ttk.Combobox(
+                    frame,
+                    textvariable=self.field_vars[label],
+                    values=["М", "Ж"],
+                    state="readonly",
+                    width=42,
+                )
+            else:
+                field = ttk.Entry(frame, textvariable=self.field_vars[label], width=45)
+            field.grid(row=index, column=1, sticky="ew", pady=4)
 
         button_frame = ttk.Frame(frame)
         button_frame.grid(row=len(FIELD_LABELS) + 2, column=0, columnspan=2, sticky="e", pady=(12, 0))
@@ -132,12 +156,21 @@ class SizCardApp:
         }
 
         for label, variable in self.field_vars.items():
-            employee[label] = variable.get().strip()
+            employee_column = FIELD_TO_EMPLOYEE_COLUMN.get(label, label)
+            employee[employee_column] = variable.get().strip()
 
         return employee
 
     def validate_employee(self, employee):
-        missing = [field for field, value in employee.items() if not value]
+        required_to_employee_column = {
+            field: FIELD_TO_EMPLOYEE_COLUMN.get(field, field)
+            for field in REQUIRED_FIELDS
+        }
+        missing = [
+            field
+            for field, employee_column in required_to_employee_column.items()
+            if not employee.get(employee_column)
+        ]
         if missing:
             messagebox.showerror("Заполните поля", "Не заполнены поля:\n" + "\n".join(missing))
             return False
