@@ -220,15 +220,36 @@ def normalize_workbook_font(workbook):
             break
 
 
-def set_table_row_height(sheet, row_number, text):
-    """Increase row height for long PPE names while keeping the normal font size."""
-    text_length = len(str(text or ""))
-    if text_length > 110:
-        sheet.row_dimensions[row_number].height = 60
-    elif text_length > 70:
-        sheet.row_dimensions[row_number].height = 45
-    elif text_length > 35:
-        sheet.row_dimensions[row_number].height = 32
+def estimate_text_height(text, chars_per_line, base_height=24, line_height=17):
+    """Estimate row height for wrapped text."""
+    visual_lines = 0
+    for text_part in str(text or "").splitlines() or [""]:
+        visual_lines += max(1, ceil(len(text_part) / chars_per_line))
+    if visual_lines <= 1:
+        return base_height
+    return max(base_height, visual_lines * line_height)
+
+
+def set_table_row_height(sheet, row_number, row_values):
+    """Increase prescribed PPE table row height by the longest visible field."""
+    base_height = sheet.row_dimensions[row_number].height or 24
+    fields = [
+        (1, row_values.get("Наименование СИЗ"), 42),
+        (49, row_values.get("Основание"), 20),
+        (67, row_values.get("Срок носки"), 22),
+        (88, row_values.get("Норма выдачи"), 14),
+    ]
+
+    row_height = base_height
+    for column, text, chars_per_line in fields:
+        cell = sheet.cell(row=row_number, column=column)
+        alignment = copy(cell.alignment)
+        alignment.wrap_text = True
+        cell.alignment = alignment
+        cell.font = Font(name="Times New Roman", size=11)
+        row_height = max(row_height, estimate_text_height(text, chars_per_line, base_height))
+
+    sheet.row_dimensions[row_number].height = row_height
 
 
 def set_back_table_row_height(sheet, row_number, text):
@@ -486,7 +507,7 @@ def create_card(employee, norms, template_path, output_dir):
         safe_write_cell(front_sheet, f"AW{norm_row}", norm["Основание"])
         safe_write_cell(front_sheet, f"BO{norm_row}", norm["Срок носки"])
         safe_write_cell(front_sheet, f"CJ{norm_row}", norm["Норма выдачи"])
-        set_table_row_height(front_sheet, norm_row, norm["Наименование СИЗ"])
+        set_table_row_height(front_sheet, norm_row, norm)
 
         safe_write_cell(back_sheet, f"A{issue_row}", norm["Наименование СИЗ"])
         for column in range(18, 109):
