@@ -123,22 +123,27 @@ class SizCardApp:
             column=0,
             padx=(0, 8),
         )
+        ttk.Button(button_frame, text="Очистить форму", command=self.clear_form).grid(
+            row=0,
+            column=1,
+            padx=(0, 8),
+        )
         self.open_card_button = ttk.Button(
             button_frame,
             text="Открыть созданную карточку",
             command=self.open_created_card,
             state="disabled",
         )
-        self.open_card_button.grid(row=0, column=1, padx=(0, 8))
+        self.open_card_button.grid(row=0, column=2, padx=(0, 8))
         self.print_card_button = ttk.Button(
             button_frame,
             text="Печать карточки СИЗ",
             command=self.print_created_card,
             state="disabled",
         )
-        self.print_card_button.grid(row=0, column=2, padx=(0, 8))
+        self.print_card_button.grid(row=0, column=3, padx=(0, 8))
         self.create_button = ttk.Button(button_frame, text="Создать карточку", command=self.create_card)
-        self.create_button.grid(row=0, column=3)
+        self.create_button.grid(row=0, column=4)
 
     def check_required_files(self):
         missing_files = []
@@ -349,6 +354,13 @@ class SizCardApp:
     def open_output_folder(self):
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         os.startfile(OUTPUT_DIR)
+
+    def clear_form(self):
+        for variable in self.field_vars.values():
+            variable.set("")
+        self.last_created_card_path = None
+        self.open_card_button["state"] = "disabled"
+        self.print_card_button["state"] = "disabled"
 
     def open_created_card(self):
         if not self.last_created_card_path or not self.last_created_card_path.exists():
