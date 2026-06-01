@@ -130,8 +130,15 @@ class SizCardApp:
             state="disabled",
         )
         self.open_card_button.grid(row=0, column=1, padx=(0, 8))
+        self.print_card_button = ttk.Button(
+            button_frame,
+            text="Печать карточки СИЗ",
+            command=self.print_created_card,
+            state="disabled",
+        )
+        self.print_card_button.grid(row=0, column=2, padx=(0, 8))
         self.create_button = ttk.Button(button_frame, text="Создать карточку", command=self.create_card)
-        self.create_button.grid(row=0, column=2)
+        self.create_button.grid(row=0, column=3)
 
     def check_required_files(self):
         missing_files = []
@@ -336,6 +343,7 @@ class SizCardApp:
 
         self.last_created_card_path = Path(output_path)
         self.open_card_button["state"] = "normal"
+        self.print_card_button["state"] = "normal"
         messagebox.showinfo("Карточка создана", f"Карточка создана:\n{output_path}")
 
     def open_output_folder(self):
@@ -355,6 +363,33 @@ class SizCardApp:
             os.startfile(self.last_created_card_path)
         except OSError as error:
             messagebox.showerror("Ошибка", f"Не удалось открыть карточку. Подробности: {error}")
+
+    def print_created_card(self):
+        if not self.last_created_card_path or not self.last_created_card_path.exists():
+            messagebox.showerror(
+                "Файл не найден",
+                "Созданная карточка не найдена. Возможно, файл был удален или перемещен.",
+            )
+            self.print_card_button["state"] = "disabled"
+            return
+
+        try:
+            os.startfile(self.last_created_card_path)
+        except OSError as error:
+            messagebox.showerror("Ошибка", f"Не удалось открыть карточку. Подробности: {error}")
+            return
+
+        messagebox.showinfo(
+            "Печать карточки СИЗ",
+            "Карточка открыта в Excel.\n\n"
+            "Для печати выберите:\n"
+            "1. Файл → Печать.\n"
+            "2. Печатать всю книгу.\n"
+            "3. Двусторонняя печать.\n"
+            "4. Переворот по длинному краю.\n\n"
+            "Лист 1 — лицевая сторона карточки.\n"
+            "Лист 2 — оборотная сторона карточки.",
+        )
 
 
 def main():
