@@ -116,6 +116,52 @@ def safe_write_cell(sheet, cell, value):
     sheet.cell(row=row, column=column).value = value
 
 
+def find_merged_range(sheet, row, column):
+    """Return merged range containing the cell, if it exists."""
+    coordinate = f"{get_column_letter(column)}{row}"
+    for merged_range in sheet.merged_cells.ranges:
+        if coordinate in merged_range:
+            return merged_range
+    return None
+
+
+def enable_wrap_text(sheet, row, column):
+    """Enable text wrapping without changing the existing alignment."""
+    merged_range = find_merged_range(sheet, row, column)
+    target_row = merged_range.min_row if merged_range else row
+    target_column = merged_range.min_col if merged_range else column
+    cell = sheet.cell(row=target_row, column=target_column)
+
+    alignment = copy(cell.alignment)
+    alignment.wrap_text = True
+    cell.alignment = alignment
+
+    return merged_range
+
+
+def set_employee_field_row_height(sheet, cell, text):
+    """Increase employee info row height for long values in merged fields."""
+    target = sheet[cell]
+    merged_range = enable_wrap_text(sheet, target.row, target.column)
+    column_count = (
+        merged_range.max_col - merged_range.min_col + 1
+        if merged_range
+        else 1
+    )
+    chars_per_line = max(24, min(42, int(column_count * 0.85)))
+
+    text_value = str(text or "")
+    estimated_lines = 0
+    for text_part in text_value.splitlines() or [""]:
+        estimated_lines += max(1, ceil(len(text_part) / chars_per_line))
+
+    base_height = sheet.row_dimensions[target.row].height or sheet.sheet_format.defaultRowHeight or 15
+    if estimated_lines <= 1:
+        return
+
+    sheet.row_dimensions[target.row].height = max(base_height, min(estimated_lines * 17, 75))
+
+
 def copy_row_format(sheet, source_row, target_row, max_column=108):
     """Copy row height and cell formatting from a template row."""
     sheet.row_dimensions[target_row].height = sheet.row_dimensions[source_row].height
@@ -419,6 +465,8 @@ def create_card(employee, norms, template_path, output_dir):
     safe_write_cell(front_sheet, "T21", personnel_number)
     safe_write_cell(front_sheet, "AE22", employee["Подразделение"])
     safe_write_cell(front_sheet, "AA23", employee["Должность"])
+    set_employee_field_row_height(front_sheet, "AE22", employee["Подразделение"])
+    set_employee_field_row_height(front_sheet, "AA23", employee["Должность"])
     safe_write_cell(front_sheet, "AE24", employee["Дата приема"])
     safe_write_cell(front_sheet, "BW19", employee["Пол"])
     safe_write_cell(front_sheet, "BX20", employee["Рост"])
