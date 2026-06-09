@@ -1,5 +1,6 @@
 from difflib import SequenceMatcher
 from pathlib import Path
+import re
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -13,6 +14,16 @@ NORMS_PATH = DATA_DIR / "norms.xlsx"
 REPORT_PATH = OUTPUT_DIR / "positions_check.xlsx"
 POSSIBLE_MATCH_COMMENT = (
     "Возможное переименование или различие в написании. Требуется проверка."
+)
+GRADE_MATCH_COMMENT = (
+    "Должность из штатки входит в групповую норму по разряду/категории."
+)
+GRADE_PATTERN = re.compile(
+    r"^(?P<base>.*?)"
+    r"(?P<numbers>\d+(?:\s*,\s*\d+)*)"
+    r"(?:\s*,)?\s+"
+    r"(?P<type>разряд(?:а|ы)?|категори(?:я|и))$",
+    re.IGNORECASE,
 )
 
 POSITIONS_COLUMNS = [
@@ -68,6 +79,20 @@ def set_possible_matches_widths(sheet):
         "D": 48,
         "E": 24,
         "F": 22,
+        "G": 68,
+    }
+    for column, width in widths.items():
+        sheet.column_dimensions[column].width = width
+
+
+def set_grade_matches_widths(sheet):
+    widths = {
+        "A": 38,
+        "B": 52,
+        "C": 58,
+        "D": 16,
+        "E": 20,
+        "F": 24,
         "G": 68,
     }
     for column, width in widths.items():
@@ -166,6 +191,79 @@ def similarity_percent(left, right):
     return round(SequenceMatcher(None, normalize(left), normalize(right)).ratio() * 100, 1)
 
 
+def normalize_position_grade(position):
+    """Split a position into its normalized base, grade type and numbers."""
+    match = GRADE_PATTERN.match(str(position or "").strip())
+    if not match:
+        return None
+
+    grade_type = match.group("type").casefold()
+    normalized_type = "разряд" if grade_type.startswith("разряд") else "категория"
+    base = " ".join(normalize(match.group("base")).split())
+    numbers = tuple(
+        int(number.strip())
+        for number in match.group("numbers").split(",")
+    )
+    if not base or not numbers:
+        return None
+
+    return {
+        "Основа": base,
+        "Тип": normalized_type,
+        "Номера": numbers,
+    }
+
+
+def find_grade_matches(position_pairs, norm_pairs, unmatched_position_keys):
+    norms_by_department = {}
+    for norm_key, norm_row in norm_pairs.items():
+        parsed_norm = normalize_position_grade(norm_row["Должность"])
+        if not parsed_norm or len(parsed_norm["Номера"]) < 2:
+            continue
+        norms_by_department.setdefault(norm_key[0], []).append(
+            (norm_key, norm_row, parsed_norm)
+        )
+
+    grade_matches = []
+    covered_position_keys = set()
+
+    for position_key in sorted(unmatched_position_keys):
+        position_row = position_pairs[position_key]
+        parsed_position = normalize_position_grade(position_row["Должность"])
+        if not parsed_position or len(parsed_position["Номера"]) != 1:
+            continue
+
+        position_number = parsed_position["Номера"][0]
+        for _norm_key, norm_row, parsed_norm in norms_by_department.get(
+            position_key[0],
+            [],
+        ):
+            if parsed_position["Основа"] != parsed_norm["Основа"]:
+                continue
+            if parsed_position["Тип"] != parsed_norm["Тип"]:
+                continue
+            if position_number not in parsed_norm["Номера"]:
+                continue
+
+            covered_position_keys.add(position_key)
+            grade_matches.append(
+                {
+                    "Подразделение": position_row["Подразделение"],
+                    "Должность из штатки": position_row["Должность"],
+                    "Групповая должность из норм": norm_row["Должность"],
+                    "Тип": parsed_position["Тип"],
+                    "Номер из штатки": position_number,
+                    "Номера из нормы": ", ".join(
+                        str(number)
+                        for number in parsed_norm["Номера"]
+                    ),
+                    "Комментарий": GRADE_MATCH_COMMENT,
+                }
+            )
+
+    return grade_matches, covered_position_keys
+
+
 def find_possible_matches(missing_norm_rows, missing_position_rows):
     possible_matches = []
 
@@ -223,11 +321,27 @@ def append_possible_match_rows(sheet, rows):
         )
 
 
+def append_grade_match_rows(sheet, rows):
+    for row in rows:
+        sheet.append(
+            [
+                row["Подразделение"],
+                row["Должность из штатки"],
+                row["Групповая должность из норм"],
+                row["Тип"],
+                row["Номер из штатки"],
+                row["Номера из нормы"],
+                row["Комментарий"],
+            ]
+        )
+
+
 def create_report(
     matched_rows,
     missing_norm_rows,
     missing_position_rows,
     possible_match_rows,
+    grade_match_rows,
 ):
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -270,6 +384,23 @@ def create_report(
         for cell in row:
             cell.number_format = "0.0"
 
+    grade_match_sheet = workbook.create_sheet("Совпадения по разрядам")
+    grade_match_sheet.append(
+        [
+            "Подразделение",
+            "Должность из штатки",
+            "Групповая должность из норм",
+            "Тип",
+            "Номер из штатки",
+            "Номера из нормы",
+            "Комментарий",
+        ]
+    )
+    append_grade_match_rows(grade_match_sheet, grade_match_rows)
+    style_header(grade_match_sheet)
+    set_grade_matches_widths(grade_match_sheet)
+    grade_match_sheet.freeze_panes = "A2"
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     workbook.save(REPORT_PATH)
 
@@ -289,9 +420,15 @@ def main():
         position_pairs[key]
         for key in sorted(position_pairs.keys() & norm_pairs.keys())
     ]
+    unmatched_position_keys = position_pairs.keys() - norm_pairs.keys()
+    grade_match_rows, covered_position_keys = find_grade_matches(
+        position_pairs,
+        norm_pairs,
+        unmatched_position_keys,
+    )
     missing_norm_rows = [
         position_pairs[key]
-        for key in sorted(position_pairs.keys() - norm_pairs.keys())
+        for key in sorted(unmatched_position_keys - covered_position_keys)
     ]
     missing_position_rows = [
         norm_pairs[key]
@@ -307,6 +444,7 @@ def main():
         missing_norm_rows,
         missing_position_rows,
         possible_match_rows,
+        grade_match_rows,
     )
 
     print(f"Отчет создан: {REPORT_PATH}")
@@ -314,6 +452,7 @@ def main():
     print(f"Есть в штатке, нет в нормах: {len(missing_norm_rows)}")
     print(f"Есть в нормах, нет в штатке: {len(missing_position_rows)}")
     print(f"Возможные совпадения: {len(possible_match_rows)}")
+    print(f"Совпадения по разрядам: {len(grade_match_rows)}")
 
 
 if __name__ == "__main__":
