@@ -1,3 +1,4 @@
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -10,6 +11,9 @@ OUTPUT_DIR = BASE_DIR / "output"
 POSITIONS_PATH = DATA_DIR / "positions.xlsx"
 NORMS_PATH = DATA_DIR / "norms.xlsx"
 REPORT_PATH = OUTPUT_DIR / "positions_check.xlsx"
+POSSIBLE_MATCH_COMMENT = (
+    "Возможное переименование или различие в написании. Требуется проверка."
+)
 
 POSITIONS_COLUMNS = [
     "Подразделение",
@@ -51,6 +55,20 @@ def set_widths(sheet):
         "B": 48,
         "C": 20,
         "D": 48,
+    }
+    for column, width in widths.items():
+        sheet.column_dimensions[column].width = width
+
+
+def set_possible_matches_widths(sheet):
+    widths = {
+        "A": 38,
+        "B": 48,
+        "C": 38,
+        "D": 48,
+        "E": 24,
+        "F": 22,
+        "G": 68,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -143,7 +161,74 @@ def append_report_rows(sheet, rows):
         )
 
 
-def create_report(matched_rows, missing_norm_rows, missing_position_rows):
+def similarity_percent(left, right):
+    """Return case-insensitive text similarity as a percentage."""
+    return round(SequenceMatcher(None, normalize(left), normalize(right)).ratio() * 100, 1)
+
+
+def find_possible_matches(missing_norm_rows, missing_position_rows):
+    possible_matches = []
+
+    for position_row in missing_norm_rows:
+        for norm_row in missing_position_rows:
+            department_similarity = similarity_percent(
+                position_row["Подразделение"],
+                norm_row["Подразделение"],
+            )
+            position_similarity = similarity_percent(
+                position_row["Должность"],
+                norm_row["Должность"],
+            )
+
+            if position_similarity < 70 and not (
+                department_similarity >= 70 and position_similarity >= 50
+            ):
+                continue
+
+            possible_matches.append(
+                {
+                    "Подразделение из штатки": position_row["Подразделение"],
+                    "Должность из штатки": position_row["Должность"],
+                    "Похожее подразделение из норм": norm_row["Подразделение"],
+                    "Похожая должность из норм": norm_row["Должность"],
+                    "Сходство подразделения, %": department_similarity,
+                    "Сходство должности, %": position_similarity,
+                    "Комментарий": POSSIBLE_MATCH_COMMENT,
+                }
+            )
+
+    return sorted(
+        possible_matches,
+        key=lambda row: (
+            normalize(row["Подразделение из штатки"]),
+            normalize(row["Должность из штатки"]),
+            -row["Сходство должности, %"],
+            -row["Сходство подразделения, %"],
+        ),
+    )
+
+
+def append_possible_match_rows(sheet, rows):
+    for row in rows:
+        sheet.append(
+            [
+                row["Подразделение из штатки"],
+                row["Должность из штатки"],
+                row["Похожее подразделение из норм"],
+                row["Похожая должность из норм"],
+                row["Сходство подразделения, %"],
+                row["Сходство должности, %"],
+                row["Комментарий"],
+            ]
+        )
+
+
+def create_report(
+    matched_rows,
+    missing_norm_rows,
+    missing_position_rows,
+    possible_match_rows,
+):
     workbook = Workbook()
     workbook.remove(workbook.active)
 
@@ -160,6 +245,30 @@ def create_report(matched_rows, missing_norm_rows, missing_position_rows):
         style_header(sheet)
         set_widths(sheet)
         sheet.freeze_panes = "A2"
+
+    possible_match_sheet = workbook.create_sheet("Возможные совпадения")
+    possible_match_sheet.append(
+        [
+            "Подразделение из штатки",
+            "Должность из штатки",
+            "Похожее подразделение из норм",
+            "Похожая должность из норм",
+            "Сходство подразделения, %",
+            "Сходство должности, %",
+            "Комментарий",
+        ]
+    )
+    append_possible_match_rows(possible_match_sheet, possible_match_rows)
+    style_header(possible_match_sheet)
+    set_possible_matches_widths(possible_match_sheet)
+    possible_match_sheet.freeze_panes = "A2"
+    for row in possible_match_sheet.iter_rows(
+        min_row=2,
+        min_col=5,
+        max_col=6,
+    ):
+        for cell in row:
+            cell.number_format = "0.0"
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     workbook.save(REPORT_PATH)
@@ -188,13 +297,23 @@ def main():
         norm_pairs[key]
         for key in sorted(norm_pairs.keys() - position_pairs.keys())
     ]
+    possible_match_rows = find_possible_matches(
+        missing_norm_rows,
+        missing_position_rows,
+    )
 
-    create_report(matched_rows, missing_norm_rows, missing_position_rows)
+    create_report(
+        matched_rows,
+        missing_norm_rows,
+        missing_position_rows,
+        possible_match_rows,
+    )
 
     print(f"Отчет создан: {REPORT_PATH}")
     print(f"Есть в штатке и в нормах: {len(matched_rows)}")
     print(f"Есть в штатке, нет в нормах: {len(missing_norm_rows)}")
     print(f"Есть в нормах, нет в штатке: {len(missing_position_rows)}")
+    print(f"Возможные совпадения: {len(possible_match_rows)}")
 
 
 if __name__ == "__main__":
