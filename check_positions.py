@@ -1,6 +1,8 @@
 from difflib import SequenceMatcher
+from datetime import datetime, timedelta
 from pathlib import Path
 import re
+import shutil
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -9,6 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 OUTPUT_DIR = BASE_DIR / "output"
+BACKUP_DIR = OUTPUT_DIR / "backups"
 POSITIONS_PATH = DATA_DIR / "positions.xlsx"
 NORMS_PATH = DATA_DIR / "norms.xlsx"
 REPORT_PATH = OUTPUT_DIR / "positions_check.xlsx"
@@ -336,6 +339,47 @@ def append_grade_match_rows(sheet, rows):
         )
 
 
+def get_report_paths():
+    timestamp = datetime.now().replace(microsecond=0)
+    while True:
+        timestamp_text = timestamp.strftime("%Y-%m-%d_%H-%M-%S")
+        backup_path = BACKUP_DIR / f"positions_check_backup_{timestamp_text}.xlsx"
+        archive_path = OUTPUT_DIR / f"positions_check_{timestamp_text}.xlsx"
+        if not backup_path.exists() and not archive_path.exists():
+            return backup_path, archive_path
+        timestamp += timedelta(seconds=1)
+
+
+def remove_file_if_exists(path):
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def backup_existing_report(backup_path):
+    if not REPORT_PATH.exists():
+        return None
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(REPORT_PATH, backup_path)
+    except OSError as error:
+        remove_file_if_exists(backup_path)
+        raise RuntimeError(
+            f"Не удалось создать резервную копию предыдущего отчета: {error}"
+        ) from error
+
+    if not backup_path.is_file() or backup_path.stat().st_size != REPORT_PATH.stat().st_size:
+        remove_file_if_exists(backup_path)
+        raise RuntimeError(
+            "Резервная копия предыдущего отчета не прошла проверку. "
+            "Новый отчет не создан."
+        )
+
+    return backup_path
+
+
 def create_report(
     matched_rows,
     missing_norm_rows,
@@ -402,7 +446,25 @@ def create_report(
     grade_match_sheet.freeze_panes = "A2"
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    workbook.save(REPORT_PATH)
+    backup_path, archive_path = get_report_paths()
+    created_backup_path = backup_existing_report(backup_path)
+    temporary_path = OUTPUT_DIR / f".{archive_path.name}.tmp.xlsx"
+    archive_created = False
+
+    try:
+        workbook.save(temporary_path)
+        shutil.copy2(temporary_path, archive_path)
+        archive_created = True
+        temporary_path.replace(REPORT_PATH)
+    except OSError as error:
+        remove_file_if_exists(temporary_path)
+        if archive_created:
+            remove_file_if_exists(archive_path)
+        raise RuntimeError(f"Не удалось сохранить новый отчет: {error}") from error
+    finally:
+        workbook.close()
+
+    return created_backup_path, REPORT_PATH, archive_path
 
 
 def main():
@@ -439,21 +501,31 @@ def main():
         missing_position_rows,
     )
 
-    create_report(
-        matched_rows,
-        missing_norm_rows,
-        missing_position_rows,
-        possible_match_rows,
-        grade_match_rows,
-    )
+    try:
+        backup_path, report_path, archive_path = create_report(
+            matched_rows,
+            missing_norm_rows,
+            missing_position_rows,
+            possible_match_rows,
+            grade_match_rows,
+        )
+    except RuntimeError as error:
+        print(error)
+        return 1
 
-    print(f"Отчет создан: {REPORT_PATH}")
+    if backup_path is None:
+        print("Резервная копия предыдущего отчета: не создавалась, предыдущего отчета нет.")
+    else:
+        print(f"Резервная копия предыдущего отчета: {backup_path}")
+    print(f"Новый основной отчет: {report_path}")
+    print(f"Архивный отчет: {archive_path}")
     print(f"Есть в штатке и в нормах: {len(matched_rows)}")
     print(f"Есть в штатке, нет в нормах: {len(missing_norm_rows)}")
     print(f"Есть в нормах, нет в штатке: {len(missing_position_rows)}")
     print(f"Возможные совпадения: {len(possible_match_rows)}")
     print(f"Совпадения по разрядам: {len(grade_match_rows)}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
