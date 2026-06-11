@@ -1,7 +1,11 @@
 import os
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from siz_card_generator.generator import (
     create_single_card,
@@ -15,6 +19,40 @@ DATA_DIR = BASE_DIR / "data"
 NORMS_PATH = DATA_DIR / "norms.xlsx"
 TEMPLATE_PATH = BASE_DIR / "templates" / "card_template.xlsx"
 OUTPUT_DIR = BASE_DIR / "output"
+REQUESTS_DIR = BASE_DIR / "requests"
+
+REQUEST_TITLE = "Заявка на добавление должности в нормы выдачи СИЗ"
+REQUEST_FIELDS = [
+    "Дата заявки",
+    "Подразделение",
+    "Должность",
+    "Описание выполняемых работ",
+    "Основание для добавления в нормы СИЗ",
+    "Предполагаемые СИЗ, если известно",
+    "ФИО инициатора заявки",
+    "Контакт инициатора",
+    "Статус рассмотрения",
+    "Решение специалиста по ОТ",
+    "Комментарий специалиста по ОТ",
+]
+REQUEST_REQUIRED_FIELDS = [
+    "Подразделение",
+    "Должность",
+    "Описание выполняемых работ",
+    "Основание для добавления в нормы СИЗ",
+    "ФИО инициатора заявки",
+    "Контакт инициатора",
+]
+REQUEST_MULTILINE_FIELDS = {
+    "Описание выполняемых работ",
+    "Основание для добавления в нормы СИЗ",
+    "Предполагаемые СИЗ, если известно",
+}
+REQUEST_REVIEW_FIELDS = {
+    "Статус рассмотрения",
+    "Решение специалиста по ОТ",
+    "Комментарий специалиста по ОТ",
+}
 
 
 FIELD_LABELS = [
@@ -55,6 +93,76 @@ NAVIGATION_KEYS = {
     "Up",
     "Down",
 }
+
+
+def validate_request_data(request_data):
+    return [
+        field
+        for field in REQUEST_REQUIRED_FIELDS
+        if not str(request_data.get(field, "") or "").strip()
+    ]
+
+
+def get_request_path(request_time=None):
+    timestamp = (request_time or datetime.now()).replace(microsecond=0)
+    while True:
+        timestamp_text = timestamp.strftime("%Y-%m-%d_%H-%M-%S")
+        request_path = REQUESTS_DIR / f"Заявка_СИЗ_{timestamp_text}.xlsx"
+        if not request_path.exists():
+            return request_path
+        timestamp += timedelta(seconds=1)
+
+
+def create_request_file(request_data, request_time=None):
+    missing_fields = validate_request_data(request_data)
+    if missing_fields:
+        raise ValueError(f"Заполните обязательное поле: {missing_fields[0]}")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Заявка"
+    sheet.merge_cells("A1:B1")
+    title_cell = sheet["A1"]
+    title_cell.value = REQUEST_TITLE
+    title_cell.font = Font(bold=True, size=14)
+    title_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    title_cell.fill = PatternFill("solid", fgColor="D9EAF7")
+    sheet.row_dimensions[1].height = 36
+
+    thin_side = Side(style="thin", color="808080")
+    border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    for row_number, field in enumerate(REQUEST_FIELDS, start=3):
+        label_cell = sheet.cell(row=row_number, column=1, value=field)
+        value = "" if field in REQUEST_REVIEW_FIELDS else request_data.get(field, "")
+        value_cell = sheet.cell(row=row_number, column=2, value=str(value or "").strip())
+
+        label_cell.font = Font(bold=True)
+        label_cell.fill = PatternFill("solid", fgColor="EAF2F8")
+        label_cell.alignment = Alignment(vertical="top", wrap_text=True)
+        value_cell.alignment = Alignment(vertical="top", wrap_text=True)
+        label_cell.border = border
+        value_cell.border = border
+
+        if field in REQUEST_MULTILINE_FIELDS or field == "Комментарий специалиста по ОТ":
+            sheet.row_dimensions[row_number].height = 55
+        else:
+            sheet.row_dimensions[row_number].height = 28
+
+    sheet.column_dimensions["A"].width = 42
+    sheet.column_dimensions["B"].width = 72
+    sheet.freeze_panes = "A3"
+    sheet.page_setup.orientation = "portrait"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_area = f"A1:B{len(REQUEST_FIELDS) + 2}"
+
+    REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
+    request_path = get_request_path(request_time)
+    workbook.save(request_path)
+    workbook.close()
+    return request_path
 
 
 class SizCardApp:
@@ -144,6 +252,25 @@ class SizCardApp:
         self.print_card_button.grid(row=0, column=3, padx=(0, 8))
         self.create_button = ttk.Button(button_frame, text="Создать карточку", command=self.create_card)
         self.create_button.grid(row=0, column=4)
+
+        request_button_frame = ttk.Frame(frame)
+        request_button_frame.grid(
+            row=len(FIELD_LABELS) + 3,
+            column=0,
+            columnspan=2,
+            sticky="e",
+            pady=(8, 0),
+        )
+        ttk.Button(
+            request_button_frame,
+            text="Открыть папку заявок",
+            command=self.open_requests_folder,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            request_button_frame,
+            text="Заявка на добавление должности",
+            command=self.open_request_form,
+        ).grid(row=0, column=1)
 
     def check_required_files(self):
         missing_files = []
@@ -354,6 +481,150 @@ class SizCardApp:
     def open_output_folder(self):
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         os.startfile(OUTPUT_DIR)
+
+    def open_requests_folder(self):
+        REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(REQUESTS_DIR)
+        except OSError as error:
+            messagebox.showerror("Ошибка", f"Не удалось открыть папку заявок:\n{error}")
+
+    def open_request_form(self):
+        window = tk.Toplevel(self.root)
+        window.title(REQUEST_TITLE)
+        window.resizable(False, False)
+        window.transient(self.root)
+
+        frame = ttk.Frame(window, padding=16)
+        frame.grid(row=0, column=0, sticky="nsew")
+
+        request_vars = {
+            "Дата заявки": tk.StringVar(value=date.today().isoformat()),
+            "Подразделение": tk.StringVar(value=self.department_var.get().strip()),
+            "Должность": tk.StringVar(value=self.position_var.get().strip()),
+            "ФИО инициатора заявки": tk.StringVar(),
+            "Контакт инициатора": tk.StringVar(),
+        }
+        text_fields = {}
+        request_state = {"last_created_path": None}
+        form_fields = [
+            "Подразделение",
+            "Должность",
+            "Описание выполняемых работ",
+            "Основание для добавления в нормы СИЗ",
+            "Предполагаемые СИЗ, если известно",
+            "ФИО инициатора заявки",
+            "Контакт инициатора",
+            "Дата заявки",
+        ]
+
+        for row_number, field in enumerate(form_fields):
+            ttk.Label(frame, text=field).grid(
+                row=row_number,
+                column=0,
+                sticky="nw",
+                padx=(0, 12),
+                pady=4,
+            )
+            if field in REQUEST_MULTILINE_FIELDS:
+                widget = tk.Text(frame, width=58, height=4, wrap="word")
+                widget.grid(row=row_number, column=1, sticky="ew", pady=4)
+                text_fields[field] = widget
+            else:
+                widget = ttk.Entry(frame, textvariable=request_vars[field], width=60)
+                widget.grid(row=row_number, column=1, sticky="ew", pady=4)
+
+        def save_request():
+            request_data = {
+                field: widget.get("1.0", "end").strip()
+                for field, widget in text_fields.items()
+            }
+            request_data.update(
+                {
+                    field: variable.get().strip()
+                    for field, variable in request_vars.items()
+                }
+            )
+
+            missing_fields = validate_request_data(request_data)
+            if missing_fields:
+                messagebox.showerror(
+                    "Не заполнено обязательное поле",
+                    f"Заполните обязательное поле: {missing_fields[0]}",
+                    parent=window,
+                )
+                return
+
+            try:
+                request_path = create_request_file(request_data)
+            except (OSError, ValueError) as error:
+                messagebox.showerror(
+                    "Ошибка создания заявки",
+                    f"Не удалось создать заявку:\n{error}",
+                    parent=window,
+                )
+                return
+
+            request_state["last_created_path"] = Path(request_path)
+            open_request_button["state"] = "normal"
+            messagebox.showinfo(
+                "Заявка создана",
+                f"Заявка создана: {request_path}. "
+                "Передайте файл специалисту по охране труда.",
+                parent=window,
+            )
+
+        def open_created_request():
+            request_path = request_state["last_created_path"]
+            if not request_path or not request_path.exists():
+                messagebox.showerror(
+                    "Файл не найден",
+                    "Файл заявки не найден. Проверьте папку requests.",
+                    parent=window,
+                )
+                open_request_button["state"] = "disabled"
+                return
+
+            try:
+                os.startfile(request_path)
+            except OSError as error:
+                messagebox.showerror(
+                    "Ошибка",
+                    f"Не удалось открыть заявку:\n{error}",
+                    parent=window,
+                )
+
+        button_frame = ttk.Frame(frame)
+        button_frame.grid(
+            row=len(form_fields),
+            column=0,
+            columnspan=2,
+            sticky="e",
+            pady=(12, 0),
+        )
+        ttk.Button(button_frame, text="Закрыть", command=window.destroy).grid(
+            row=0,
+            column=0,
+            padx=(0, 8),
+        )
+        open_request_button = ttk.Button(
+            button_frame,
+            text="Открыть заявку",
+            command=open_created_request,
+            state="disabled",
+        )
+        open_request_button.grid(
+            row=0,
+            column=1,
+            padx=(0, 8),
+        )
+        ttk.Button(button_frame, text="Сохранить заявку", command=save_request).grid(
+            row=0,
+            column=2,
+        )
+
+        window.grab_set()
+        window.focus_set()
 
     def clear_form(self):
         for variable in self.field_vars.values():
