@@ -9,15 +9,20 @@ from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-NORM_COLUMNS = [
+NORM_REQUIRED_COLUMNS = [
     "Подразделение",
     "Должность",
     "Наименование СИЗ",
-    "Норма выдачи",
-    "Срок носки",
-    "Основание",
+    "Пункт Норм / основание",
+    "Единица измерения, периодичность выдачи",
+]
+
+NORM_OPTIONAL_COLUMNS = [
+    "Количество на период",
     "Примечание",
 ]
+
+NORM_COLUMNS = NORM_REQUIRED_COLUMNS + NORM_OPTIONAL_COLUMNS
 
 EMPLOYEE_COLUMNS = [
     "Табельный номер",
@@ -74,6 +79,27 @@ def normalize(value):
     if value is None:
         return ""
     return str(value).strip().lower()
+
+
+def normalize_quantity_for_output(value):
+    """Format a prescribed quantity without replacing an empty value."""
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+
+    try:
+        number = float(text.replace(",", "."))
+    except ValueError:
+        return text
+
+    if number != number:
+        return ""
+    if number.is_integer():
+        return str(int(number))
+    return text
 
 
 def safe_filename(value):
@@ -255,9 +281,9 @@ def set_table_row_height(sheet, row_number, row_values):
     base_height = sheet.row_dimensions[row_number].height or 24
     fields = [
         (1, row_values.get("Наименование СИЗ"), 42),
-        (49, row_values.get("Основание"), 20),
-        (67, row_values.get("Срок носки"), 22),
-        (88, row_values.get("Норма выдачи"), 14),
+        (49, row_values.get("Пункт Норм / основание"), 20),
+        (67, row_values.get("Единица измерения, периодичность выдачи"), 22),
+        (88, row_values.get("Количество на период"), 14),
     ]
 
     row_height = base_height
@@ -391,10 +417,11 @@ def update_print_areas(front_sheet, back_sheet):
     back_sheet.print_area = f"A1:DD{back_sheet.max_row}"
 
 
-def read_table(path, required_columns):
+def read_table(path, required_columns, optional_columns=None):
     """Read an Excel sheet where the first row contains column headers."""
     workbook = load_workbook(path, data_only=True)
     sheet = workbook.active
+    optional_columns = optional_columns or []
 
     headers = [cell.value for cell in sheet[1]]
     missing_columns = [column for column in required_columns if column not in headers]
@@ -408,9 +435,12 @@ def read_table(path, required_columns):
             continue
 
         item = {}
-        for column in required_columns:
+        for column in required_columns + optional_columns:
+            if column not in headers:
+                item[column] = None
+                continue
             index = headers.index(column)
-            item[column] = row[index]
+            item[column] = row[index] if index < len(row) else None
         rows.append(item)
 
     return rows
@@ -418,7 +448,7 @@ def read_table(path, required_columns):
 
 def load_norms(norms_path):
     """Group norms by department and position."""
-    rows = read_table(norms_path, NORM_COLUMNS)
+    rows = read_table(norms_path, NORM_REQUIRED_COLUMNS, NORM_OPTIONAL_COLUMNS)
     norms_by_key = {}
 
     for row in rows:
@@ -432,7 +462,7 @@ def load_norms(norms_path):
 
 def get_departments(norms_path):
     """Return unique departments from norms.xlsx."""
-    rows = read_table(norms_path, NORM_COLUMNS)
+    rows = read_table(norms_path, NORM_REQUIRED_COLUMNS, NORM_OPTIONAL_COLUMNS)
     departments = {
         str(row["Подразделение"]).strip()
         for row in rows
@@ -443,7 +473,7 @@ def get_departments(norms_path):
 
 def get_positions_by_department(norms_path, department):
     """Return positions available for the selected department."""
-    rows = read_table(norms_path, NORM_COLUMNS)
+    rows = read_table(norms_path, NORM_REQUIRED_COLUMNS, NORM_OPTIONAL_COLUMNS)
     selected_department = normalize(department)
     positions = {
         str(row["Должность"]).strip()
@@ -524,9 +554,17 @@ def create_card(employee, norms, template_path, output_dir):
         issue_row = ISSUE_TABLE_START_ROW + index - 1
 
         safe_write_cell(front_sheet, f"A{norm_row}", norm["Наименование СИЗ"])
-        safe_write_cell(front_sheet, f"AW{norm_row}", norm["Основание"])
-        safe_write_cell(front_sheet, f"BO{norm_row}", norm["Срок носки"])
-        safe_write_cell(front_sheet, f"CJ{norm_row}", norm["Норма выдачи"])
+        safe_write_cell(front_sheet, f"AW{norm_row}", norm["Пункт Норм / основание"])
+        safe_write_cell(
+            front_sheet,
+            f"BO{norm_row}",
+            norm["Единица измерения, периодичность выдачи"],
+        )
+        safe_write_cell(
+            front_sheet,
+            f"CJ{norm_row}",
+            normalize_quantity_for_output(norm["Количество на период"]),
+        )
         set_table_row_height(front_sheet, norm_row, norm)
 
         safe_write_cell(back_sheet, f"A{issue_row}", norm["Наименование СИЗ"])
