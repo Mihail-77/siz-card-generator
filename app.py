@@ -226,14 +226,9 @@ class SizCardApp:
         button_frame = ttk.Frame(frame)
         button_frame.grid(row=len(FIELD_LABELS) + 2, column=0, columnspan=2, sticky="e", pady=(12, 0))
 
-        ttk.Button(button_frame, text="Открыть папку output", command=self.open_output_folder).grid(
-            row=0,
-            column=0,
-            padx=(0, 8),
-        )
         ttk.Button(button_frame, text="Очистить форму", command=self.clear_form).grid(
             row=0,
-            column=1,
+            column=0,
             padx=(0, 8),
         )
         self.open_card_button = ttk.Button(
@@ -242,16 +237,16 @@ class SizCardApp:
             command=self.open_created_card,
             state="disabled",
         )
-        self.open_card_button.grid(row=0, column=2, padx=(0, 8))
+        self.open_card_button.grid(row=0, column=1, padx=(0, 8))
         self.print_card_button = ttk.Button(
             button_frame,
             text="Печать карточки СИЗ",
             command=self.print_created_card,
             state="disabled",
         )
-        self.print_card_button.grid(row=0, column=3, padx=(0, 8))
+        self.print_card_button.grid(row=0, column=2, padx=(0, 8))
         self.create_button = ttk.Button(button_frame, text="Создать карточку", command=self.create_card)
-        self.create_button.grid(row=0, column=4)
+        self.create_button.grid(row=0, column=3)
 
         request_button_frame = ttk.Frame(frame)
         request_button_frame.grid(
@@ -477,10 +472,6 @@ class SizCardApp:
         self.open_card_button["state"] = "normal"
         self.print_card_button["state"] = "normal"
         messagebox.showinfo("Карточка создана", f"Карточка создана:\n{output_path}")
-
-    def open_output_folder(self):
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        os.startfile(OUTPUT_DIR)
 
     def open_requests_folder(self):
         REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
