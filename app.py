@@ -234,6 +234,14 @@ class SizCardApp:
             font=("Segoe UI", 10),
         )
         self.style.configure(
+            "Author.TLabel",
+            background=app_background,
+            foreground="#7B858E",
+            font=("Segoe UI", 8),
+            borderwidth=0,
+            relief="flat",
+        )
+        self.style.configure(
             "Neutral.TButton",
             background=neutral_background,
             foreground=text_color,
@@ -486,6 +494,11 @@ class SizCardApp:
             command=self.open_request_form,
             style="Neutral.TButton",
         ).grid(row=1, column=1, sticky="ew", padx=(5, 0))
+        ttk.Label(
+            frame,
+            text="Mikhail Kochergin",
+            style="Author.TLabel",
+        ).grid(row=7, column=0, sticky="e", pady=(12, 2))
 
     def check_required_files(self):
         missing_files = []
