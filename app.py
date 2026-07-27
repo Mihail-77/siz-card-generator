@@ -169,7 +169,8 @@ class SizCardApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Генератор карточек СИЗ")
-        self.root.resizable(False, False)
+        self.root.minsize(720, 570)
+        self.root.resizable(True, True)
 
         self.department_var = tk.StringVar()
         self.position_var = tk.StringVar()
@@ -179,93 +180,312 @@ class SizCardApp:
         self.files_ready = False
         self.last_created_card_path = None
 
+        self.configure_styles()
         self.build_form()
+        self.center_window(760, 600)
         self.files_ready = self.check_required_files()
         if self.files_ready:
             self.load_departments()
         else:
             self.create_button["state"] = "disabled"
 
-    def build_form(self):
-        frame = ttk.Frame(self.root, padding=16)
-        frame.grid(row=0, column=0, sticky="nsew")
+    def configure_styles(self):
+        self.style = ttk.Style(self.root)
+        if "clam" in self.style.theme_names():
+            self.style.theme_use("clam")
 
-        ttk.Label(frame, text="Подразделение").grid(row=0, column=0, sticky="w", pady=4)
-        self.department_combo = ttk.Combobox(
-            frame,
-            textvariable=self.department_var,
-            width=42,
+        app_background = "#F3F5F7"
+        surface_background = "#FFFFFF"
+        text_color = "#2B3035"
+        muted_color = "#68727D"
+        accent_color = "#2F6FAE"
+        accent_active = "#285F95"
+        neutral_background = "#EDF1F4"
+        neutral_active = "#E1E7EC"
+        neutral_pressed = "#D4DCE3"
+        neutral_border = "#B8C2CB"
+
+        self.root.configure(background=app_background)
+        self.style.configure(".", font=("Segoe UI", 10))
+        self.style.configure("App.TFrame", background=app_background)
+        self.style.configure("Surface.TFrame", background=surface_background)
+        self.style.configure(
+            "Header.TLabel",
+            background=app_background,
+            foreground=text_color,
+            font=("Segoe UI", 16, "bold"),
         )
-        self.department_combo.grid(row=0, column=1, sticky="ew", pady=4)
+        self.style.configure(
+            "Subtitle.TLabel",
+            background=app_background,
+            foreground=muted_color,
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "Section.TLabel",
+            background=surface_background,
+            foreground=text_color,
+            font=("Segoe UI", 11, "bold"),
+        )
+        self.style.configure(
+            "Field.TLabel",
+            background=surface_background,
+            foreground=text_color,
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "Neutral.TButton",
+            background=neutral_background,
+            foreground=text_color,
+            font=("Segoe UI", 10),
+            padding=(10, 7),
+            borderwidth=1,
+            bordercolor=neutral_border,
+            lightcolor=neutral_border,
+            darkcolor=neutral_border,
+            relief="raised",
+        )
+        self.style.map(
+            "Neutral.TButton",
+            background=[
+                ("disabled", "#F2F4F6"),
+                ("pressed", neutral_pressed),
+                ("active", neutral_active),
+            ],
+            foreground=[("disabled", "#858F99"), ("!disabled", text_color)],
+            bordercolor=[
+                ("disabled", "#D3D9DE"),
+                ("pressed", "#98A6B2"),
+                ("active", "#A8B4BE"),
+                ("!disabled", neutral_border),
+            ],
+            relief=[("pressed", "sunken"), ("!pressed", "raised")],
+        )
+        self.style.configure(
+            "Accent.TButton",
+            background=accent_color,
+            foreground="#FFFFFF",
+            font=("Segoe UI", 10, "bold"),
+            padding=(14, 8),
+            borderwidth=1,
+        )
+        self.style.map(
+            "Accent.TButton",
+            background=[
+                ("disabled", "#AAB7C4"),
+                ("pressed", accent_active),
+                ("active", accent_active),
+            ],
+            foreground=[("disabled", "#EEF2F5"), ("!disabled", "#FFFFFF")],
+        )
+
+    def center_window(self, width, height):
+        self.root.update_idletasks()
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = max((screen_width - width) // 2, 0)
+        y = max((screen_height - height) // 2, 0)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    def build_form(self):
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+
+        frame = ttk.Frame(self.root, style="App.TFrame", padding=(20, 8))
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+
+        header_frame = ttk.Frame(frame, style="App.TFrame")
+        header_frame.grid(row=0, column=0, sticky="ew")
+        header_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            header_frame,
+            text="Генератор карточек СИЗ",
+            style="Header.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header_frame,
+            text="Создание личной карточки учёта выдачи средств индивидуальной защиты",
+            style="Subtitle.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        ttk.Separator(frame, orient="horizontal").grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            pady=(8, 8),
+        )
+
+        employee_frame = ttk.Frame(
+            frame,
+            style="Surface.TFrame",
+            padding=(16, 8),
+        )
+        employee_frame.grid(row=2, column=0, sticky="ew")
+        employee_frame.columnconfigure(0, minsize=150)
+        employee_frame.columnconfigure(1, weight=1)
+        ttk.Label(
+            employee_frame,
+            text="Данные работника",
+            style="Section.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+
+        ttk.Label(
+            employee_frame,
+            text="Подразделение",
+            style="Field.TLabel",
+        ).grid(row=1, column=0, sticky="w", padx=(0, 14), pady=2)
+        self.department_combo = ttk.Combobox(
+            employee_frame,
+            textvariable=self.department_var,
+        )
+        self.department_combo.grid(row=1, column=1, sticky="ew", pady=2)
         self.department_combo.bind("<<ComboboxSelected>>", self.on_department_selected)
         self.department_combo.bind("<KeyRelease>", self.on_department_typed)
 
-        ttk.Label(frame, text="Должность").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Label(
+            employee_frame,
+            text="Должность",
+            style="Field.TLabel",
+        ).grid(row=2, column=0, sticky="w", padx=(0, 14), pady=2)
         self.position_combo = ttk.Combobox(
-            frame,
+            employee_frame,
             textvariable=self.position_var,
-            width=42,
         )
-        self.position_combo.grid(row=1, column=1, sticky="ew", pady=4)
+        self.position_combo.grid(row=2, column=1, sticky="ew", pady=2)
         self.position_combo.bind("<KeyRelease>", self.on_position_typed)
 
-        for index, label in enumerate(FIELD_LABELS, start=2):
-            ttk.Label(frame, text=label).grid(row=index, column=0, sticky="w", pady=4)
+        employee_labels = FIELD_LABELS[:4]
+        for index, label in enumerate(employee_labels, start=3):
+            display_label = "Дата приёма" if label == "Дата приема" else label
+            ttk.Label(
+                employee_frame,
+                text=display_label,
+                style="Field.TLabel",
+            ).grid(row=index, column=0, sticky="w", padx=(0, 14), pady=2)
             if label == "Пол":
                 field = ttk.Combobox(
-                    frame,
+                    employee_frame,
                     textvariable=self.field_vars[label],
                     values=["М", "Ж"],
                     state="readonly",
-                    width=42,
                 )
             else:
-                field = ttk.Entry(frame, textvariable=self.field_vars[label], width=45)
-            field.grid(row=index, column=1, sticky="ew", pady=4)
+                field = ttk.Entry(employee_frame, textvariable=self.field_vars[label])
+            field.grid(row=index, column=1, sticky="ew", pady=2)
 
-        button_frame = ttk.Frame(frame)
-        button_frame.grid(row=len(FIELD_LABELS) + 2, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        size_frame = ttk.Frame(
+            frame,
+            style="Surface.TFrame",
+            padding=(16, 8),
+        )
+        size_frame.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        size_frame.columnconfigure(0, weight=1, uniform="size_columns")
+        size_frame.columnconfigure(1, minsize=24)
+        size_frame.columnconfigure(2, weight=1, uniform="size_columns")
+        ttk.Label(
+            size_frame,
+            text="Размерные данные",
+            style="Section.TLabel",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
 
-        ttk.Button(button_frame, text="Очистить форму", command=self.clear_form).grid(
+        left_size_frame = ttk.Frame(size_frame, style="Surface.TFrame")
+        left_size_frame.grid(row=1, column=0, sticky="nsew")
+        right_size_frame = ttk.Frame(size_frame, style="Surface.TFrame")
+        right_size_frame.grid(row=1, column=2, sticky="nsew")
+        for column_frame in (left_size_frame, right_size_frame):
+            column_frame.columnconfigure(0, minsize=185)
+            column_frame.columnconfigure(1, weight=1)
+
+        left_size_fields = ["Рост", "Размер одежды", "Размер обуви"]
+        right_size_fields = ["Размер головного убора", "Размер перчаток"]
+        for row, label in enumerate(left_size_fields):
+            ttk.Label(
+                left_size_frame,
+                text=label,
+                style="Field.TLabel",
+            ).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=2)
+            ttk.Entry(
+                left_size_frame,
+                textvariable=self.field_vars[label],
+            ).grid(row=row, column=1, sticky="ew", pady=2)
+
+        for row, label in enumerate(right_size_fields):
+            ttk.Label(
+                right_size_frame,
+                text=label,
+                style="Field.TLabel",
+            ).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=2)
+            ttk.Entry(
+                right_size_frame,
+                textvariable=self.field_vars[label],
+            ).grid(row=row, column=1, sticky="ew", pady=2)
+
+        action_frame = ttk.Frame(frame, style="App.TFrame")
+        action_frame.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        action_frame.columnconfigure(1, weight=1)
+
+        ttk.Button(
+            action_frame,
+            text="Очистить форму",
+            command=self.clear_form,
+            style="Neutral.TButton",
+        ).grid(
             row=0,
             column=0,
-            padx=(0, 8),
+            sticky="w",
         )
+        right_actions = ttk.Frame(action_frame, style="App.TFrame")
+        right_actions.grid(row=0, column=1, sticky="e")
         self.open_card_button = ttk.Button(
-            button_frame,
+            right_actions,
             text="Открыть созданную карточку",
             command=self.open_created_card,
             state="disabled",
+            style="Neutral.TButton",
         )
         self.open_card_button.grid(row=0, column=1, padx=(0, 8))
         self.print_card_button = ttk.Button(
-            button_frame,
+            right_actions,
             text="Печать карточки СИЗ",
             command=self.print_created_card,
             state="disabled",
+            style="Neutral.TButton",
         )
         self.print_card_button.grid(row=0, column=2, padx=(0, 8))
-        self.create_button = ttk.Button(button_frame, text="Создать карточку", command=self.create_card)
+        self.create_button = ttk.Button(
+            right_actions,
+            text="Создать карточку",
+            command=self.create_card,
+            style="Accent.TButton",
+        )
         self.create_button.grid(row=0, column=3)
 
-        request_button_frame = ttk.Frame(frame)
-        request_button_frame.grid(
-            row=len(FIELD_LABELS) + 3,
-            column=0,
-            columnspan=2,
-            sticky="e",
-            pady=(8, 0),
+        request_frame = ttk.Frame(
+            frame,
+            style="Surface.TFrame",
+            padding=(16, 8),
         )
+        request_frame.grid(row=6, column=0, sticky="ew", pady=(18, 0))
+        request_frame.columnconfigure(0, weight=1, uniform="request_buttons")
+        request_frame.columnconfigure(1, weight=1, uniform="request_buttons")
+        ttk.Label(
+            request_frame,
+            text="Заявки на изменение норм",
+            style="Section.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Button(
-            request_button_frame,
+            request_frame,
             text="Открыть папку заявок",
             command=self.open_requests_folder,
-        ).grid(row=0, column=0, padx=(0, 8))
+            style="Neutral.TButton",
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 5))
         ttk.Button(
-            request_button_frame,
+            request_frame,
             text="Заявка на добавление должности",
             command=self.open_request_form,
-        ).grid(row=0, column=1)
+            style="Neutral.TButton",
+        ).grid(row=1, column=1, sticky="ew", padx=(5, 0))
 
     def check_required_files(self):
         missing_files = []
