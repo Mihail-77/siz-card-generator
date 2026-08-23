@@ -366,7 +366,10 @@ class SizCardApp:
 
         employee_labels = FIELD_LABELS[:4]
         for index, label in enumerate(employee_labels, start=3):
-            display_label = "Дата приёма" if label == "Дата приема" else label
+            display_label = {
+                "Номер карточки": "Табельный номер",
+                "Дата приема": "Дата приёма",
+            }.get(label, label)
             ttk.Label(
                 employee_frame,
                 text=display_label,
