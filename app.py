@@ -1,4 +1,7 @@
+import base64
 import os
+import subprocess
+import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import tkinter as tk
@@ -53,6 +56,181 @@ REQUEST_REVIEW_FIELDS = {
     "Решение специалиста по ОТ",
     "Комментарий специалиста по ОТ",
 }
+
+PRINT_PREVIEW_SCRIPT = r"""
+$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+$excel = $null
+$workbooks = $null
+$workbook = $null
+$worksheetCollection = $null
+$worksheets = @()
+$errorMessage = $null
+
+try {
+    $cardPath = $env:SIZ_CARD_PATH
+    if ([string]::IsNullOrWhiteSpace($cardPath) -or -not (Test-Path -LiteralPath $cardPath -PathType Leaf)) {
+        throw "Файл карточки не найден."
+    }
+
+    $excel = New-Object -ComObject Excel.Application
+    $excel.DisplayAlerts = $false
+    $workbooks = $excel.Workbooks
+    $workbook = $workbooks.Open($cardPath)
+    $worksheetCollection = $workbook.Worksheets
+
+    $sheetSettings = @{
+        "Лицевая сторона" = @{
+            Left = 0.7874015748031497
+            Right = 0.3149606299212598
+        }
+        "Оборотная сторона" = @{
+            Left = 0.3937007874015748
+            Right = 0.7086614173228347
+        }
+    }
+
+    $totalPages = 0
+    foreach ($sheetName in @($sheetSettings.Keys)) {
+        $worksheet = $null
+        $pageSetup = $null
+        $pages = $null
+        try {
+            $worksheet = $worksheetCollection.Item($sheetName)
+        }
+        catch {
+            throw "В карточке нет обязательного листа: $sheetName."
+        }
+        $worksheets += $worksheet
+
+        $pageSetup = $worksheet.PageSetup
+        try {
+            if ([string]::IsNullOrWhiteSpace([string]$pageSetup.PrintArea)) {
+                $existingArea = $null
+                $names = $null
+                try {
+                    $names = $worksheet.Names
+                    foreach ($definedName in @($names)) {
+                        try {
+                            if ([string]$definedName.Name -like "*!Print_Area") {
+                                $reference = [string]$definedName.RefersTo
+                                $separator = $reference.IndexOf("!")
+                                if ($separator -ge 0) {
+                                    $existingArea = $reference.Substring($separator + 1)
+                                }
+                            }
+                        }
+                        finally {
+                            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($definedName)
+                        }
+                    }
+                }
+                finally {
+                    if ($names) {
+                        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($names)
+                    }
+                }
+                if ([string]::IsNullOrWhiteSpace($existingArea)) {
+                    throw "Для листа '$sheetName' не определена область печати."
+                }
+                $pageSetup.PrintArea = $existingArea
+            }
+
+            if ($pageSetup.PaperSize -ne 9) { $pageSetup.PaperSize = 9 }
+            if ($pageSetup.Orientation -ne 1) { $pageSetup.Orientation = 1 }
+            if ([bool]$pageSetup.Zoom) { $pageSetup.Zoom = $false }
+            if ($pageSetup.FitToPagesWide -ne 1) { $pageSetup.FitToPagesWide = 1 }
+            if ($pageSetup.FitToPagesTall -ne 1) { $pageSetup.FitToPagesTall = 1 }
+
+            $settings = $sheetSettings[$sheetName]
+            $leftMargin = $excel.InchesToPoints($settings.Left)
+            $rightMargin = $excel.InchesToPoints($settings.Right)
+            $topMargin = $excel.InchesToPoints(0.5905511811023623)
+            $bottomMargin = $excel.InchesToPoints(0.3937007874015748)
+            $headerFooterMargin = $excel.InchesToPoints(0.1968503937007874)
+            if ([Math]::Abs($pageSetup.LeftMargin - $leftMargin) -gt 0.001) {
+                $pageSetup.LeftMargin = $leftMargin
+            }
+            if ([Math]::Abs($pageSetup.RightMargin - $rightMargin) -gt 0.001) {
+                $pageSetup.RightMargin = $rightMargin
+            }
+            if ([Math]::Abs($pageSetup.TopMargin - $topMargin) -gt 0.001) {
+                $pageSetup.TopMargin = $topMargin
+            }
+            if ([Math]::Abs($pageSetup.BottomMargin - $bottomMargin) -gt 0.001) {
+                $pageSetup.BottomMargin = $bottomMargin
+            }
+            if ([Math]::Abs($pageSetup.HeaderMargin - $headerFooterMargin) -gt 0.001) {
+                $pageSetup.HeaderMargin = $headerFooterMargin
+            }
+            if ([Math]::Abs($pageSetup.FooterMargin - $headerFooterMargin) -gt 0.001) {
+                $pageSetup.FooterMargin = $headerFooterMargin
+            }
+
+            $pages = $pageSetup.Pages
+            $pageCount = $pages.Count
+            if ($pageCount -ne 1) {
+                throw "Лист '$sheetName' не помещается на одну печатную страницу."
+            }
+            $totalPages += $pageCount
+        }
+        finally {
+            if ($pages) {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($pages)
+            }
+            if ($pageSetup) {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($pageSetup)
+            }
+        }
+    }
+
+    if ($totalPages -ne 2) {
+        throw "Предварительный просмотр должен содержать две страницы."
+    }
+
+    Write-Output "PREVIEW_PAGES=$totalPages"
+    $worksheetCollection.Select()
+    $excel.Visible = $true
+    $workbook.PrintPreview()
+}
+catch {
+    $errorMessage = $_.Exception.Message
+}
+finally {
+    if ($workbook) {
+        try { $workbook.Close($false) } catch {}
+    }
+    for ($index = $worksheets.Count - 1; $index -ge 0; $index--) {
+        if ($worksheets[$index]) {
+            try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($worksheets[$index]) } catch {}
+        }
+    }
+    if ($worksheetCollection) {
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($worksheetCollection) } catch {}
+    }
+    if ($workbook) {
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) } catch {}
+    }
+    if ($workbooks) {
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbooks) } catch {}
+    }
+    if ($excel) {
+        try { $excel.Quit() } catch {}
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) } catch {}
+    }
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+}
+
+if ($errorMessage) {
+    $errorBytes = [System.Text.Encoding]::UTF8.GetBytes($errorMessage)
+    Write-Output "ERROR_BASE64=$([Convert]::ToBase64String($errorBytes))"
+    exit 1
+}
+"""
 
 
 FIELD_LABELS = [
@@ -179,6 +357,7 @@ class SizCardApp:
         self.positions = []
         self.files_ready = False
         self.last_created_card_path = None
+        self.print_thread = None
         self.editable_entries = []
 
         self.configure_styles()
@@ -962,23 +1141,83 @@ class SizCardApp:
             self.print_card_button["state"] = "disabled"
             return
 
+        card_path = self.last_created_card_path.resolve()
+        self.print_card_button["state"] = "disabled"
+        self.print_thread = threading.Thread(
+            target=self.run_print_preview,
+            args=(card_path,),
+            daemon=False,
+        )
+        self.print_thread.start()
+
+    def run_print_preview(self, card_path):
+        environment = os.environ.copy()
+        environment["SIZ_CARD_PATH"] = str(card_path)
+        encoded_script = base64.b64encode(
+            PRINT_PREVIEW_SCRIPT.encode("utf-16le")
+        ).decode("ascii")
+
         try:
-            os.startfile(self.last_created_card_path)
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-EncodedCommand",
+                    encoded_script,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=environment,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            )
         except OSError as error:
-            messagebox.showerror("Ошибка", f"Не удалось открыть карточку. Подробности: {error}")
+            self.schedule_print_preview_result(str(error))
             return
 
-        messagebox.showinfo(
-            "Печать карточки СИЗ",
-            "Карточка открыта в Excel.\n\n"
-            "Для печати выберите:\n"
-            "1. Файл → Печать.\n"
-            "2. Печатать всю книгу.\n"
-            "3. Двусторонняя печать.\n"
-            "4. Переворот по длинному краю.\n\n"
-            "Лист 1 — лицевая сторона карточки.\n"
-            "Лист 2 — оборотная сторона карточки.",
-        )
+        if result.returncode:
+            encoded_error = next(
+                (
+                    line.removeprefix("ERROR_BASE64=").strip()
+                    for line in result.stdout.splitlines()
+                    if line.startswith("ERROR_BASE64=")
+                ),
+                "",
+            )
+            try:
+                detail = base64.b64decode(encoded_error).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                detail = "Ошибка PowerShell."
+            if not detail:
+                detail = "Ошибка PowerShell."
+            self.schedule_print_preview_result(detail[:500])
+            return
+
+        self.schedule_print_preview_result()
+
+    def schedule_print_preview_result(self, error_message=None):
+        try:
+            self.root.after(0, self.finish_print_preview, error_message)
+        except (RuntimeError, tk.TclError):
+            pass
+
+    def finish_print_preview(self, error_message=None):
+        if self.last_created_card_path and self.last_created_card_path.exists():
+            self.print_card_button["state"] = "normal"
+        else:
+            self.print_card_button["state"] = "disabled"
+
+        if error_message:
+            messagebox.showerror(
+                "Ошибка печати",
+                f"Не удалось открыть карточку для печати.\nПодробности: {error_message}",
+            )
 
 
 def main():
