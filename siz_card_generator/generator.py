@@ -556,7 +556,16 @@ def style_generated_card(front_sheet, back_sheet, norms_count):
 
     for row in front_sheet.iter_rows(min_row=NORM_TABLE_START_ROW, max_row=last_norm_row, min_col=1, max_col=108):
         for cell in row:
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            alignment = copy(cell.alignment)
+            alignment.wrap_text = True
+            alignment.vertical = "center"
+            cell.alignment = alignment
+
+        norm_reference_cell = front_sheet.cell(row=row[0].row, column=60)
+        norm_reference_font = copy(norm_reference_cell.font)
+        norm_reference_font.name = "Times New Roman"
+        norm_reference_font.size = 10
+        norm_reference_cell.font = norm_reference_font
 
     for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_START_ROW, max_row=last_issue_row, min_col=1, max_col=108):
         for cell in row:
