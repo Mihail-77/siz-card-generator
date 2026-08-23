@@ -102,6 +102,24 @@ def normalize_quantity_for_output(value):
     return text
 
 
+def normalize_periodicity_for_output(value):
+    """Add an explicit annual period to ordinary yearly issue units."""
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    annual_periods = {
+        "шт.": "шт. на год",
+        "пара": "пара на год",
+        "пар": "пар на год",
+        "пары": "пары на год",
+    }
+    return annual_periods.get(text, text)
+
+
 def safe_filename(value):
     """Make a simple file name from employee name or personnel number."""
     name = str(value).strip()
@@ -558,7 +576,9 @@ def create_card(employee, norms, template_path, output_dir):
         safe_write_cell(
             front_sheet,
             f"BO{norm_row}",
-            norm["Единица измерения, периодичность выдачи"],
+            normalize_periodicity_for_output(
+                norm["Единица измерения, периодичность выдачи"]
+            ),
         )
         safe_write_cell(
             front_sheet,
