@@ -48,13 +48,12 @@ ISSUE_TABLE_START_ROW = ISSUE_TABLE_NUMBER_ROW + 1
 FRONT_TEMPLATE_ROW = 30
 FRONT_TEMPLATE_LAST_ROW = 33
 BACK_TEMPLATE_ROW = 6
-BACK_TEMPLATE_LAST_ROW = 7
-FRONT_TABLE_MERGES = [(1, 48), (49, 66), (67, 87), (88, 108)]
-BACK_TABLE_MERGES = [
-    (1, 17),
-    (18, 35),
-    (36, 44),
-    (45, 52),
+BACK_TEMPLATE_LAST_ROW = 8
+BACK_ROWS_PER_ITEM = 3
+FRONT_TABLE_MERGES = [(1, 59), (60, 82), (83, 98), (99, 108)]
+BACK_STATIC_MERGES = [(1, 25), (26, 43)]
+BACK_EVENT_MERGES = [
+    (44, 52),
     (53, 60),
     (61, 70),
     (71, 79),
@@ -62,10 +61,10 @@ BACK_TABLE_MERGES = [
     (88, 97),
     (98, 108),
 ]
-BACK_NOTE_TEXTS = [
-    "* - информация указывается только для дерматологических СИЗ",
-    "** - информация указывается для всех СИЗ, кроме дерматологических СИЗ и СИЗ однократного применения",
-]
+BACK_NOTE_TEXT = (
+    "** - информация указывается для всех СИЗ, кроме дерматологических СИЗ "
+    "и СИЗ однократного применения"
+)
 THIN_BORDER = Border(
     left=Side(style="thin", color="000000"),
     right=Side(style="thin", color="000000"),
@@ -298,10 +297,10 @@ def set_table_row_height(sheet, row_number, row_values):
     """Increase prescribed PPE table row height by the longest visible field."""
     base_height = sheet.row_dimensions[row_number].height or 24
     fields = [
-        (1, row_values.get("Наименование СИЗ"), 42),
-        (49, row_values.get("Пункт Норм / основание"), 20),
-        (67, row_values.get("Единица измерения, периодичность выдачи"), 22),
-        (88, row_values.get("Количество на период"), 14),
+        (1, row_values.get("Наименование СИЗ"), 52),
+        (60, row_values.get("Пункт Норм / основание"), 26),
+        (83, row_values.get("Единица измерения, периодичность выдачи"), 17),
+        (99, row_values.get("Количество на период"), 7),
     ]
 
     row_height = base_height
@@ -316,20 +315,25 @@ def set_table_row_height(sheet, row_number, row_values):
     sheet.row_dimensions[row_number].height = row_height
 
 
-def set_back_table_row_height(sheet, row_number, text):
-    """Set row height for the issue/return table based on the PPE name length."""
+def set_back_table_block_height(sheet, start_row, text):
+    """Set the total height of a three-row issue/return block."""
     text_value = str(text or "")
-    text_length = len(text_value)
     visual_lines = 0
     for text_part in text_value.splitlines() or [""]:
-        visual_lines += max(1, ceil(len(text_part) / 14))
+        visual_lines += max(1, ceil(len(text_part) / 18))
 
-    row_height = max(36, visual_lines * 17)
-    if 25 <= text_length <= 40:
-        row_height = max(row_height, 54)
+    required_block_height = max(72, visual_lines * 17 + 6)
+    row_height = max(24, ceil(required_block_height * 2 / BACK_ROWS_PER_ITEM) / 2)
 
-    sheet.row_dimensions[row_number].height = min(row_height, 110)
-    sheet.cell(row=row_number, column=1).alignment = Alignment(
+    for row_number in range(start_row, start_row + BACK_ROWS_PER_ITEM):
+        sheet.row_dimensions[row_number].height = row_height
+
+    sheet.cell(row=start_row, column=1).alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=True,
+    )
+    sheet.cell(row=start_row, column=26).alignment = Alignment(
         horizontal="left",
         vertical="center",
         wrap_text=True,
@@ -344,7 +348,7 @@ def style_back_table_row(sheet, row_number):
         cell.border = copy(THIN_BORDER)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    for column in range(1, 18):
+    for column in range(1, 44):
         sheet.cell(row=row_number, column=column).alignment = Alignment(
             horizontal="left",
             vertical="center",
@@ -370,21 +374,39 @@ def prepare_front_table_rows(sheet, row_count):
 
 
 def prepare_back_table_rows(sheet, row_count):
-    """Prepare formatted rows for the PPE issue and return table."""
+    """Prepare formatted three-row blocks for the issue and return table."""
     if row_count <= 0:
         return
 
     existing_rows = BACK_TEMPLATE_LAST_ROW - BACK_TEMPLATE_ROW + 1
-    extra_rows = max(0, row_count - existing_rows)
+    required_rows = row_count * BACK_ROWS_PER_ITEM
+    extra_rows = max(0, required_rows - existing_rows)
     if extra_rows:
         sheet.insert_rows(BACK_TEMPLATE_LAST_ROW + 1, extra_rows)
 
-    for row_number in range(BACK_TEMPLATE_ROW, BACK_TEMPLATE_ROW + row_count):
-        unmerge_ranges_on_row(sheet, row_number)
+    last_data_row = BACK_TEMPLATE_ROW + required_rows - 1
+    clear_merged_ranges_intersecting_rows(sheet, BACK_TEMPLATE_ROW, last_data_row)
+
+    for row_number in range(BACK_TEMPLATE_ROW, last_data_row + 1):
         remove_stale_merged_cells(sheet, row_number)
-        copy_row_format(sheet, BACK_TEMPLATE_ROW, row_number)
+        source_row = BACK_TEMPLATE_ROW + (
+            (row_number - BACK_TEMPLATE_ROW) % BACK_ROWS_PER_ITEM
+        )
+        copy_row_format(sheet, source_row, row_number)
         style_back_table_row(sheet, row_number)
-        apply_row_merges(sheet, row_number, BACK_TABLE_MERGES)
+
+    for item_index in range(row_count):
+        block_start = BACK_TEMPLATE_ROW + item_index * BACK_ROWS_PER_ITEM
+        block_end = block_start + BACK_ROWS_PER_ITEM - 1
+        for start_column, end_column in BACK_STATIC_MERGES:
+            sheet.merge_cells(
+                start_row=block_start,
+                start_column=start_column,
+                end_row=block_end,
+                end_column=end_column,
+            )
+        for row_number in range(block_start, block_end + 1):
+            apply_row_merges(sheet, row_number, BACK_EVENT_MERGES)
 
 
 def clear_merged_ranges_intersecting_rows(sheet, start_row, end_row):
@@ -395,7 +417,13 @@ def clear_merged_ranges_intersecting_rows(sheet, start_row, end_row):
         if merged_range.min_row <= end_row and merged_range.max_row >= start_row
     ]
     for merged_range in ranges_to_unmerge:
-        sheet.unmerge_cells(merged_range)
+        try:
+            sheet.unmerge_cells(merged_range)
+        except KeyError:
+            for existing_range in list(sheet.merged_cells.ranges):
+                if existing_range.coord == merged_range:
+                    sheet.merged_cells.ranges.remove(existing_range)
+                    break
 
 
 def remove_stale_merged_cells(sheet, row_number, max_column=108):
@@ -407,26 +435,23 @@ def remove_stale_merged_cells(sheet, row_number, max_column=108):
 
 
 def prepare_back_notes(sheet, norms_count):
-    """Place note rows directly below the generated issue/return table."""
-    first_note_row = ISSUE_TABLE_START_ROW + norms_count
-    second_note_row = first_note_row + 1
+    """Place the return note directly below the generated table."""
+    note_row = ISSUE_TABLE_START_ROW + norms_count * BACK_ROWS_PER_ITEM
+    clear_merged_ranges_intersecting_rows(sheet, note_row, note_row)
+    remove_stale_merged_cells(sheet, note_row)
 
-    clear_merged_ranges_intersecting_rows(sheet, first_note_row, second_note_row)
+    for column in range(1, 109):
+        cell = sheet.cell(row=note_row, column=column)
+        cell.value = None
+        cell.border = copy(sheet["A1"].border)
+        cell.fill = copy(sheet["A1"].fill)
 
-    for row_number, note_text in zip([first_note_row, second_note_row], BACK_NOTE_TEXTS):
-        remove_stale_merged_cells(sheet, row_number)
-        for column in range(1, 109):
-            cell = sheet.cell(row=row_number, column=column)
-            cell.value = None
-            cell.border = copy(sheet["A1"].border)
-            cell.fill = copy(sheet["A1"].fill)
-
-        sheet.merge_cells(start_row=row_number, start_column=2, end_row=row_number, end_column=108)
-        note_cell = sheet.cell(row=row_number, column=2)
-        note_cell.value = note_text
-        note_cell.font = Font(name="Times New Roman", size=11)
-        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        sheet.row_dimensions[row_number].height = 18 if row_number == first_note_row else 34
+    sheet.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=108)
+    note_cell = sheet.cell(row=note_row, column=2)
+    note_cell.value = BACK_NOTE_TEXT
+    note_cell.font = Font(name="Times New Roman", size=11)
+    note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    sheet.row_dimensions[note_row].height = 34
 
 
 def update_print_areas(front_sheet, back_sheet):
@@ -524,7 +549,10 @@ def build_warning(employee, reason):
 def style_generated_card(front_sheet, back_sheet, norms_count):
     """Apply basic formatting to the generated card."""
     last_norm_row = max(NORM_TABLE_HEADER_ROW, NORM_TABLE_START_ROW + norms_count - 1)
-    last_issue_row = max(ISSUE_TABLE_START_ROW, ISSUE_TABLE_START_ROW + norms_count - 1)
+    last_issue_row = max(
+        ISSUE_TABLE_START_ROW,
+        ISSUE_TABLE_START_ROW + norms_count * BACK_ROWS_PER_ITEM - 1,
+    )
 
     for row in front_sheet.iter_rows(min_row=NORM_TABLE_START_ROW, max_row=last_norm_row, min_col=1, max_col=108):
         for cell in row:
@@ -532,7 +560,7 @@ def style_generated_card(front_sheet, back_sheet, norms_count):
 
     for row in back_sheet.iter_rows(min_row=ISSUE_TABLE_START_ROW, max_row=last_issue_row, min_col=1, max_col=108):
         for cell in row:
-            horizontal = "left" if cell.column <= 17 else "center"
+            horizontal = "left" if cell.column <= 43 else "center"
             cell.alignment = Alignment(horizontal=horizontal, vertical="center", wrap_text=True)
 
 
@@ -547,7 +575,8 @@ def create_card(employee, norms, template_path, output_dir):
     personnel_number = employee["Табельный номер"]
     surname, name, patronymic = split_full_name(full_name)
 
-    safe_write_cell(front_sheet, "AF16", f"ЛИЧНАЯ КАРТОЧКА № {personnel_number}")
+    safe_write_cell(front_sheet, "AF16", "ЛИЧНАЯ КАРТОЧКА №")
+    safe_write_cell(front_sheet, "BO16", personnel_number)
     safe_write_cell(front_sheet, "L19", surname)
     safe_write_cell(front_sheet, "G20", name)
     safe_write_cell(front_sheet, "AV20", patronymic)
@@ -569,28 +598,30 @@ def create_card(employee, norms, template_path, output_dir):
 
     for index, norm in enumerate(norms, start=1):
         norm_row = NORM_TABLE_START_ROW + index - 1
-        issue_row = ISSUE_TABLE_START_ROW + index - 1
+        issue_row = ISSUE_TABLE_START_ROW + (index - 1) * BACK_ROWS_PER_ITEM
 
         safe_write_cell(front_sheet, f"A{norm_row}", norm["Наименование СИЗ"])
-        safe_write_cell(front_sheet, f"AW{norm_row}", norm["Пункт Норм / основание"])
+        safe_write_cell(front_sheet, f"BH{norm_row}", norm["Пункт Норм / основание"])
         safe_write_cell(
             front_sheet,
-            f"BO{norm_row}",
+            f"CE{norm_row}",
             normalize_periodicity_for_output(
                 norm["Единица измерения, периодичность выдачи"]
             ),
         )
         safe_write_cell(
             front_sheet,
-            f"CJ{norm_row}",
+            f"CU{norm_row}",
             normalize_quantity_for_output(norm["Количество на период"]),
         )
         set_table_row_height(front_sheet, norm_row, norm)
 
         safe_write_cell(back_sheet, f"A{issue_row}", norm["Наименование СИЗ"])
-        for column in range(18, 109):
-            safe_write_cell(back_sheet, (issue_row, column), None)
-        set_back_table_row_height(back_sheet, issue_row, norm["Наименование СИЗ"])
+        safe_write_cell(back_sheet, f"Z{issue_row}", None)
+        for event_row in range(issue_row, issue_row + BACK_ROWS_PER_ITEM):
+            for column in range(44, 109):
+                safe_write_cell(back_sheet, (event_row, column), None)
+        set_back_table_block_height(back_sheet, issue_row, norm["Наименование СИЗ"])
 
     style_generated_card(front_sheet, back_sheet, len(norms))
     prepare_back_notes(back_sheet, len(norms))
