@@ -61,7 +61,8 @@ FIELD_LABELS = [
     "Дата приема",
     "Пол",
     "Рост",
-    "Размер одежды",
+    "Размер одежды (верх)",
+    "Размер одежды (низ)",
     "Размер обуви",
     "Размер головного убора",
     "Размер перчаток",
@@ -79,7 +80,6 @@ REQUIRED_FIELDS = [
     "Дата приема",
     "Пол",
     "Рост",
-    "Размер одежды",
 ]
 
 NAVIGATION_KEYS = {
@@ -179,6 +179,7 @@ class SizCardApp:
         self.positions = []
         self.files_ready = False
         self.last_created_card_path = None
+        self.editable_entries = []
 
         self.configure_styles()
         self.build_form()
@@ -381,6 +382,12 @@ class SizCardApp:
             else:
                 field = ttk.Entry(employee_frame, textvariable=self.field_vars[label])
             field.grid(row=index, column=1, sticky="ew", pady=2)
+            if isinstance(field, ttk.Entry):
+                self.configure_editable_entry(field)
+            if label == "Дата приема":
+                self.date_entry = field
+                field.bind("<KeyRelease>", self.format_date_entry, add="+")
+                field.bind("<<Paste>>", self.schedule_date_format, add="+")
 
         size_frame = ttk.Frame(
             frame,
@@ -405,18 +412,20 @@ class SizCardApp:
             column_frame.columnconfigure(0, minsize=185)
             column_frame.columnconfigure(1, weight=1)
 
-        left_size_fields = ["Рост", "Размер одежды", "Размер обуви"]
-        right_size_fields = ["Размер головного убора", "Размер перчаток"]
+        left_size_fields = ["Рост", "Размер одежды (верх)", "Размер одежды (низ)"]
+        right_size_fields = ["Размер обуви", "Размер головного убора", "Размер перчаток"]
         for row, label in enumerate(left_size_fields):
             ttk.Label(
                 left_size_frame,
                 text=label,
                 style="Field.TLabel",
             ).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=2)
-            ttk.Entry(
+            field = ttk.Entry(
                 left_size_frame,
                 textvariable=self.field_vars[label],
-            ).grid(row=row, column=1, sticky="ew", pady=2)
+            )
+            field.grid(row=row, column=1, sticky="ew", pady=2)
+            self.configure_editable_entry(field)
 
         for row, label in enumerate(right_size_fields):
             ttk.Label(
@@ -424,10 +433,12 @@ class SizCardApp:
                 text=label,
                 style="Field.TLabel",
             ).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=2)
-            ttk.Entry(
+            field = ttk.Entry(
                 right_size_frame,
                 textvariable=self.field_vars[label],
-            ).grid(row=row, column=1, sticky="ew", pady=2)
+            )
+            field.grid(row=row, column=1, sticky="ew", pady=2)
+            self.configure_editable_entry(field)
 
         action_frame = ttk.Frame(frame, style="App.TFrame")
         action_frame.grid(row=4, column=0, sticky="ew", pady=(10, 0))
@@ -447,9 +458,8 @@ class SizCardApp:
         right_actions.grid(row=0, column=1, sticky="e")
         self.open_card_button = ttk.Button(
             right_actions,
-            text="Открыть созданную карточку",
-            command=self.open_created_card,
-            state="disabled",
+            text="Открыть папку карточек",
+            command=self.open_cards_folder,
             style="Neutral.TButton",
         )
         self.open_card_button.grid(row=0, column=1, padx=(0, 8))
@@ -499,6 +509,76 @@ class SizCardApp:
             text="Mikhail Kochergin",
             style="Author.TLabel",
         ).grid(row=7, column=0, sticky="e", pady=(12, 2))
+
+    def configure_editable_entry(self, entry):
+        self.editable_entries.append(entry)
+        entry.bind("<Control-KeyPress>", self.handle_control_shortcut, add="+")
+        entry.bind("<Control-a>", lambda event: self.run_entry_shortcut(event, "<<SelectAll>>"), add="+")
+        entry.bind("<Control-c>", lambda event: self.run_entry_shortcut(event, "<<Copy>>"), add="+")
+        entry.bind("<Control-v>", lambda event: self.run_entry_shortcut(event, "<<Paste>>"), add="+")
+        entry.bind("<Control-x>", lambda event: self.run_entry_shortcut(event, "<<Cut>>"), add="+")
+
+    def run_entry_shortcut(self, event, virtual_event):
+        if virtual_event == "<<SelectAll>>":
+            event.widget.selection_range(0, tk.END)
+            event.widget.icursor(tk.END)
+        else:
+            event.widget.event_generate(virtual_event)
+        return "break"
+
+    def handle_control_shortcut(self, event):
+        shortcut_by_keycode = {
+            65: "<<SelectAll>>",
+            67: "<<Copy>>",
+            86: "<<Paste>>",
+            88: "<<Cut>>",
+        }
+        shortcut_by_keysym = {
+            "a": "<<SelectAll>>",
+            "c": "<<Copy>>",
+            "v": "<<Paste>>",
+            "x": "<<Cut>>",
+        }
+        virtual_event = shortcut_by_keycode.get(event.keycode)
+        if not virtual_event:
+            virtual_event = shortcut_by_keysym.get(str(event.keysym).lower())
+        if not virtual_event:
+            return None
+
+        return self.run_entry_shortcut(event, virtual_event)
+
+    def schedule_date_format(self, _event=None):
+        self.date_entry.after_idle(self.format_date_entry)
+
+    def format_date_entry(self, _event=None):
+        raw_value = self.date_entry.get()
+        cursor_position = self.date_entry.index(tk.INSERT)
+        digits_before_cursor = sum(character.isdigit() for character in raw_value[:cursor_position])
+        digits = "".join(character for character in raw_value if character.isdigit())[:8]
+
+        if len(digits) <= 2:
+            formatted_value = digits
+        elif len(digits) <= 4:
+            formatted_value = f"{digits[:2]}.{digits[2:]}"
+        else:
+            formatted_value = f"{digits[:2]}.{digits[2:4]}.{digits[4:]}"
+
+        if formatted_value == raw_value:
+            return
+
+        self.field_vars["Дата приема"].set(formatted_value)
+        if digits_before_cursor == 0:
+            new_cursor_position = 0
+        else:
+            seen_digits = 0
+            new_cursor_position = len(formatted_value)
+            for index, character in enumerate(formatted_value, start=1):
+                if character.isdigit():
+                    seen_digits += 1
+                if seen_digits == digits_before_cursor:
+                    new_cursor_position = index
+                    break
+        self.date_entry.icursor(new_cursor_position)
 
     def check_required_files(self):
         missing_files = []
@@ -635,8 +715,16 @@ class SizCardApp:
         }
 
         for label, variable in self.field_vars.items():
+            if label in {"Размер одежды (верх)", "Размер одежды (низ)"}:
+                continue
             employee_column = FIELD_TO_EMPLOYEE_COLUMN.get(label, label)
             employee[employee_column] = variable.get().strip()
+
+        clothing_sizes = [
+            self.field_vars["Размер одежды (верх)"].get().strip(),
+            self.field_vars["Размер одежды (низ)"].get().strip(),
+        ]
+        employee["Размер одежды"] = "/".join(size for size in clothing_sizes if size)
 
         return employee
 
@@ -702,9 +790,15 @@ class SizCardApp:
             return
 
         self.last_created_card_path = Path(output_path)
-        self.open_card_button["state"] = "normal"
         self.print_card_button["state"] = "normal"
         messagebox.showinfo("Карточка создана", f"Карточка создана:\n{output_path}")
+
+    def open_cards_folder(self):
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(OUTPUT_DIR)
+        except OSError as error:
+            messagebox.showerror("Ошибка", f"Не удалось открыть папку карточек:\n{error}")
 
     def open_requests_folder(self):
         REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -854,22 +948,7 @@ class SizCardApp:
         for variable in self.field_vars.values():
             variable.set("")
         self.last_created_card_path = None
-        self.open_card_button["state"] = "disabled"
         self.print_card_button["state"] = "disabled"
-
-    def open_created_card(self):
-        if not self.last_created_card_path or not self.last_created_card_path.exists():
-            messagebox.showerror(
-                "Файл не найден",
-                "Созданная карточка не найдена. Возможно, файл был удален или перемещен.",
-            )
-            self.open_card_button["state"] = "disabled"
-            return
-
-        try:
-            os.startfile(self.last_created_card_path)
-        except OSError as error:
-            messagebox.showerror("Ошибка", f"Не удалось открыть карточку. Подробности: {error}")
 
     def print_created_card(self):
         if not self.last_created_card_path or not self.last_created_card_path.exists():
