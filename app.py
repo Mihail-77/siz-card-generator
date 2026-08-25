@@ -1,6 +1,7 @@
 import base64
 import os
 import subprocess
+import sys
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -17,11 +18,20 @@ from siz_card_generator.generator import (
 )
 
 
-BASE_DIR = Path(__file__).parent
+
+def get_application_dir():
+    """Return the folder containing the executable or the source app."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = get_application_dir()
 DATA_DIR = BASE_DIR / "data"
 NORMS_PATH = DATA_DIR / "norms.xlsx"
 TEMPLATE_PATH = BASE_DIR / "templates" / "card_template.xlsx"
 OUTPUT_DIR = BASE_DIR / "output"
+BACKUPS_DIR = OUTPUT_DIR / "backups"
 REQUESTS_DIR = BASE_DIR / "requests"
 
 REQUEST_TITLE = "Заявка на добавление должности в нормы выдачи СИЗ"
@@ -74,7 +84,12 @@ try {
         throw "Файл карточки не найден."
     }
 
-    $excel = New-Object -ComObject Excel.Application
+    try {
+        $excel = New-Object -ComObject Excel.Application
+    }
+    catch {
+        throw "Для предварительного просмотра и печати требуется установленный Microsoft Excel. Создание карточек доступно без Excel."
+    }
     $excel.DisplayAlerts = $false
     $workbooks = $excel.Workbooks
     $workbook = $workbooks.Open($cardPath)
@@ -341,6 +356,12 @@ def create_request_file(request_data, request_time=None):
     workbook.save(request_path)
     workbook.close()
     return request_path
+
+
+def ensure_working_directories():
+    """Create writable portable folders without creating required resources."""
+    for directory in (OUTPUT_DIR, BACKUPS_DIR, REQUESTS_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 class SizCardApp:
@@ -1222,6 +1243,17 @@ class SizCardApp:
 
 def main():
     root = tk.Tk()
+    try:
+        ensure_working_directories()
+    except OSError as error:
+        messagebox.showerror(
+            "Не удалось подготовить рабочие папки",
+            "Программа не может создать рабочие папки рядом с приложением:\n\n"
+            f"{error}",
+            parent=root,
+        )
+        root.destroy()
+        return
     SizCardApp(root)
     root.mainloop()
 
