@@ -26,7 +26,14 @@ def get_application_dir():
     return Path(__file__).resolve().parent
 
 
+def get_resource_path(filename):
+    """Return a bundled resource path or a path next to the source file."""
+    resource_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return resource_dir / filename
+
+
 BASE_DIR = get_application_dir()
+APP_ICON_PATH = get_resource_path("app_icon.ico")
 DATA_DIR = BASE_DIR / "data"
 NORMS_PATH = DATA_DIR / "norms.xlsx"
 TEMPLATE_PATH = BASE_DIR / "templates" / "card_template.xlsx"
@@ -1243,6 +1250,11 @@ class SizCardApp:
 
 def main():
     root = tk.Tk()
+    if APP_ICON_PATH.exists():
+        try:
+            root.iconbitmap(str(APP_ICON_PATH))
+        except tk.TclError:
+            pass
     try:
         ensure_working_directories()
     except OSError as error:
